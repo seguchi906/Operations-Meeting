@@ -448,6 +448,25 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
     setLastSavedAt("");
   }
 
+function saveLocalBundle(bundle: MeetingBundle) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem("ops_meeting_bundle_" + bundle.meetingId, JSON.stringify(bundle));
+  } catch (e) {
+    console.warn("Failed to save to localStorage:", e);
+  }
+}
+
+function loadLocalBundle(meetingId: string): MeetingBundle | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("ops_meeting_bundle_" + meetingId);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
   useEffect(() => {
     let cancelled = false;
     async function restoreMeeting() {
@@ -457,13 +476,26 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
         if (!cancelled) {
           if (bundle) {
             applyMeetingBundle(bundle);
+            saveLocalBundle(bundle);
+          } else {
+            const localBundle = loadLocalBundle(selectedMeetingId);
+            if (localBundle) {
+              applyMeetingBundle(localBundle);
+            } else {
+              resetToEmptyMeeting();
+            }
+          }
+        }
+      } catch (error) {
+        console.info("Neonからの読み込みエラー、ローカルのキャッシュを確認します:", error);
+        if (!cancelled) {
+          const localBundle = loadLocalBundle(selectedMeetingId);
+          if (localBundle) {
+            applyMeetingBundle(localBundle);
           } else {
             resetToEmptyMeeting();
           }
         }
-      } catch (error) {
-        console.info("保存済み会議の読み込みをスキップしました:", error);
-        if (!cancelled) resetToEmptyMeeting();
       } finally {
         if (!cancelled) setIsBundleLoading(false);
       }
@@ -531,8 +563,10 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
   async function saveCurrentMeetingBundle() {
     setIsBundleSaving(true);
     setSaveState("保存中…");
+    const bundle = createMeetingBundle("確定済み");
+    saveLocalBundle(bundle);
     try {
-      const result = await saveMeetingBundleAction(createMeetingBundle("確定済み"));
+      const result = await saveMeetingBundleAction(bundle);
       setMeetings((current) => current.map((meeting) => meeting.id === selectedMeeting.id
         ? { ...meeting, status: "確定済み" }
         : meeting));
@@ -550,8 +584,10 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
   async function resumeMeetingEditing() {
     setIsResumingEditing(true);
     setSaveState("保存中…");
+    const bundle = createMeetingBundle("準備中");
+    saveLocalBundle(bundle);
     try {
-      const result = await saveMeetingBundleAction(createMeetingBundle("準備中"));
+      const result = await saveMeetingBundleAction(bundle);
       setMeetings((current) => current.map((meeting) => meeting.id === selectedMeeting.id ? { ...meeting, status: "準備中" } : meeting));
       setLastSavedAt(result.updatedAt);
       setSaveState("Neonに保存済み");
@@ -567,8 +603,10 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
   async function saveAgendaItem(item: AgendaItem) {
     setSavingAgendaId(item.id);
     setSaveState("保存中…");
+    const bundle = createMeetingBundle("準備中");
+    saveLocalBundle(bundle);
     try {
-      const result = await saveMeetingBundleAction(createMeetingBundle("準備中"));
+      const result = await saveMeetingBundleAction(bundle);
       setLastSavedAt(result.updatedAt);
       setSaveState("Neonに保存済み");
       showToast(item.department + "の議題を保存しました");
@@ -583,8 +621,10 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
   async function saveTranscript() {
     setIsTranscriptSaving(true);
     setSaveState("保存中…");
+    const bundle = createMeetingBundle("準備中");
+    saveLocalBundle(bundle);
     try {
-      const result = await saveMeetingBundleAction(createMeetingBundle("準備中"));
+      const result = await saveMeetingBundleAction(bundle);
       setLastSavedAt(result.updatedAt);
       setSaveState("Neonに保存済み");
       showToast("トランスクリプトを保存しました");
@@ -599,24 +639,50 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
   async function saveMinutesDraft() {
     setIsMinutesDraftSaving(true);
     setSaveState("保存中…");
+    const bundle = createMeetingBundle("準備中");
+    saveLocalBundle(bundle);
     try {
-      const result = await saveMeetingBundleAction(createMeetingBundle("準備中"));
+      const result = await saveMeetingBundleAction(bundle);
       setLastSavedAt(result.updatedAt);
       setSaveState("Neonに保存済み");
       showToast("議事録の下書きを保存しました");
     } catch (error: any) {
-      setSaveState("保存エラー");
-      showToast(error?.message || "議事録の下書きを保存できませんでした");
+      setSaveState("ローカルに保存済み");
+      showToast("議事録の下書きをローカルに保存しました");
     } finally {
       setIsMinutesDraftSaving(false);
+    }
+  }
+
+  async function confirmMinutes() {
+    setIsMinutesConfirming(true);
+    setPreviewTab("minutes");
+    setSaveState("保存中…");
+    const bundle = createMeetingBundle("確定済み");
+    saveLocalBundle(bundle);
+    try {
+      const result = await saveMeetingBundleAction(bundle);
+      setMeetings((current) => current.map((meeting) => meeting.id === selectedMeeting.id
+        ? { ...meeting, status: "確定済み" }
+        : meeting));
+      setLastSavedAt(result.updatedAt);
+      setSaveState("Neonに保存済み");
+      showToast("議事録を確定し、保存しました");
+    } catch (error: any) {
+      setSaveState("ローカルに保存済み");
+      showToast("議事録を確定し、ローカルに保存しました");
+    } finally {
+      setIsMinutesConfirming(false);
     }
   }
 
   async function saveBusinessStatus(kind: "budget" | "outsourcing" | "incomplete" | "risk") {
     setSavingBusinessStatus(kind);
     setSaveState("保存中…");
+    const bundle = createMeetingBundle("準備中");
+    saveLocalBundle(bundle);
     try {
-      const result = await saveMeetingBundleAction(createMeetingBundle("準備中"));
+      const result = await saveMeetingBundleAction(bundle);
       setLastSavedAt(result.updatedAt);
       setSaveState("Neonに保存済み");
       showToast(kind === "budget" ? "残り予算を保存しました" : kind === "outsourcing" ? "外注契約を保存しました" : kind === "incomplete" ? "期限超過業務を保存しました" : "業務リスク度判定を保存しました");
