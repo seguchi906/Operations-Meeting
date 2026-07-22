@@ -8,7 +8,7 @@ function getDatabaseUrl(): string | undefined {
     (typeof process !== "undefined" && process.env?.OPERATIONS_MEETING_DATABASE_URL) ||
     (typeof process !== "undefined" && process.env?.DATABASE_URL) ||
     (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_OPERATIONS_MEETING_DATABASE_URL) ||
-    "postgresql://neondb_owner:npg_3oC6cswDVIAr@ep-snowy-cherry-awow28y6-pooler.c-12.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    undefined
   );
 }
 
