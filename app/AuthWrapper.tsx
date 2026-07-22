@@ -17,7 +17,8 @@ function getAllowedEmailsConfig(): string {
     process.env.NEXT_PUBLIC_ALLOWED_AUTH_EMAILS ||
     (typeof window !== "undefined" && (window as any).env?.VITE_ALLOWED_AUTH_EMAILS) ||
     (import.meta as any).env?.VITE_ALLOWED_AUTH_EMAILS ||
-    "";
+    process.env.VITE_ALLOWED_AUTH_EMAILS ||
+    "*";
   return envVal.trim();
 }
 
