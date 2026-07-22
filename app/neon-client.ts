@@ -66,11 +66,17 @@ export async function saveMeetingBundleClient(bundle: MeetingBundle): Promise<{ 
   return { updatedAt };
 }
 
+export async function deleteMeetingBundleClient(meetingId: string): Promise<void> {
+  const sql = database();
+  await ensureSchema(sql);
+  await sql`DELETE FROM operations_meetings WHERE meeting_id = ${meetingId}`;
+}
+
 export async function loadMeetingBundleClient(meetingId: string): Promise<MeetingBundle | null> {
   const sql = database();
   await ensureSchema(sql);
   const rows = await sql`
-    SELECT meeting_id, meeting_date, status, agenda_items, meeting_material,
+    SELECT meeting_id, meeting_date::text AS meeting_date, status, agenda_items, meeting_material,
            ai_suggestions, business_status, transcript, minutes, updated_at
     FROM operations_meetings
     WHERE meeting_id = ${meetingId}
@@ -96,7 +102,7 @@ export async function listStoredMeetingsClient(): Promise<{ id: string; date: st
   const sql = database();
   await ensureSchema(sql);
   const rows = await sql`
-    SELECT meeting_id, meeting_date, status, updated_at
+    SELECT meeting_id, meeting_date::text AS meeting_date, status, updated_at
     FROM operations_meetings
     ORDER BY meeting_date DESC, updated_at DESC
   `;

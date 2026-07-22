@@ -251,6 +251,50 @@ button {
   transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
+.meeting-card-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 4px;
+}
+
+.meeting-card-row .meeting-card {
+  margin-bottom: 0;
+  padding-right: 34px;
+}
+
+.meeting-delete-button {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  place-items: center;
+  transform: translateY(-50%);
+}
+
+.meeting-delete-button:hover {
+  background: #fff0ee;
+  color: #c33b2f;
+}
+
+.meeting-delete-button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+.meeting-delete-button svg {
+  width: 14px;
+  height: 14px;
+}
+
 .meeting-card:hover {
   background: rgba(255, 255, 255, 0.55);
 }
@@ -1851,6 +1895,11 @@ button {
   }
 
   .meeting-card {
+    min-width: 190px;
+    margin: 0;
+  }
+
+  .meeting-card-row {
     min-width: 190px;
     margin: 0;
   }

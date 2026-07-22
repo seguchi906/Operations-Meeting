@@ -7,7 +7,7 @@ import formatTranscriptPromptTemplate from "../prompts/format-transcript.md?raw"
 import ritaGuidance from "../prompts/rita-guidance.md?raw";
 import { buildProgressRiskReport, fetchLowRemainingBudgets, fetchOverdueIncompleteProjects, fetchOverdueOutsourcingContracts } from "./progress-risk";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
-import { listStoredMeetings, loadMeetingBundle, saveMeetingBundle } from "./meeting-storage";
+import { deleteMeetingBundle, listStoredMeetings, loadMeetingBundle, saveMeetingBundle } from "./meeting-storage";
 import type { MeetingBundle } from "./meeting-types";
 
 function fillPrompt(template: string, values: Record<string, string>) {
@@ -35,6 +35,10 @@ export async function getOverdueIncompleteProjectsAction(): Promise<OverdueIncom
 
 export async function saveMeetingBundleAction(bundle: MeetingBundle) {
   return saveMeetingBundle(bundle);
+}
+
+export async function deleteMeetingBundleAction(meetingId: string) {
+  return deleteMeetingBundle(meetingId);
 }
 
 export async function loadMeetingBundleAction(meetingId: string) {

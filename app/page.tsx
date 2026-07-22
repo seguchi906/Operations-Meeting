@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import { generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
+import { PanelRightClose, PanelRightOpen, Trash2 } from "lucide-react";
+import { deleteMeetingBundleAction, generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
 import { generateMeetingMaterialClient, generateMinutesClient, formatTranscriptClient } from "./gemini-client";
-import { saveMeetingBundleClient, loadMeetingBundleClient, listStoredMeetingsClient } from "./neon-client";
+import { deleteMeetingBundleClient, saveMeetingBundleClient, loadMeetingBundleClient, listStoredMeetingsClient } from "./neon-client";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
 import type { MeetingBundle } from "./meeting-types";
 
@@ -302,17 +302,11 @@ const finalMinutesSeed =
   "1. 東地区水路更新設計\n現地協議および測量データの追加確認は完了。熊本さんが修正版を7月31日までに提出する。\n\n2. 南部幹線道路予備設計\n8月の受注を想定し、技術1課から1名の応援配置を検討する。担当者は熊本課長・大久保課長が7月29日までに決定する。\n\n3. 下期の品質管理\n全案件の工程表に品質チェック日を明記し、レビューを前倒しする。";
 
 function formatMeetingDate(isoDate: string, includeYear = false) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return "日付未設定";
-  const date = new Date(isoDate + "T00:00:00+09:00");
-  if (Number.isNaN(date.getTime())) return "日付未設定";
-  const formatted = new Intl.DateTimeFormat("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    year: includeYear ? "numeric" : undefined,
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  }).format(date);
-  return includeYear ? formatted : formatted.replace(/\(.+\)/, "");
+  const match = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "日付未設定";
+  const [, year, month, day] = match;
+  const formatted = `${Number(month)}月${Number(day)}日`;
+  return includeYear ? `${year}年${formatted}` : formatted;
 }
 
 function formatTimer(totalSeconds: number) {
@@ -362,6 +356,7 @@ export default function Home() {
   const [isMinutesConfirming, setIsMinutesConfirming] = useState(false);
   const [savingBusinessStatus, setSavingBusinessStatus] = useState<"budget" | "outsourcing" | "incomplete" | "risk" | null>(null);
   const [isBundleLoading, setIsBundleLoading] = useState(false);
+  const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -476,6 +471,19 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     } catch (clientError) {
       console.error("Neon database load failed:", { serverError, clientError });
       throw new Error("データベースから会議資料を読み込めませんでした。");
+    }
+  }
+}
+
+async function deleteBundleUnified(meetingId: string) {
+  try {
+    await deleteMeetingBundleAction(meetingId);
+  } catch (serverError) {
+    try {
+      await deleteMeetingBundleClient(meetingId);
+    } catch (clientError) {
+      console.error("Neon database delete failed:", { serverError, clientError });
+      throw new Error("データベースから会議を削除できませんでした。");
     }
   }
 }
@@ -599,6 +607,9 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
 
   function createMeetingBundle(status: MeetingBundle["status"]): MeetingBundle {
     const live = liveStateRef.current;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(live.selectedMeeting.date)) {
+      throw new Error("会議日を設定してから保存してください。");
+    }
     return {
       meetingId: live.selectedMeeting.id,
       meetingDate: live.selectedMeeting.date,
@@ -849,20 +860,9 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
   }
 
   function addNextMeeting() {
-    const latest = meetings.reduce(
-      (max, meeting) => (meeting.date > max ? meeting.date : max),
-      meetings[0].date,
-    );
-    const date = new Date(latest + "T00:00:00+09:00");
-    date.setDate(date.getDate() + 7);
-    const nextIso = [
-      date.getFullYear(),
-      String(date.getMonth() + 1).padStart(2, "0"),
-      String(date.getDate()).padStart(2, "0"),
-    ].join("-");
     const nextMeeting: Meeting = {
       id: "m-" + Date.now(),
-      date: nextIso,
+      date: "",
       status: "準備中",
     };
     setMeetings((current) => [nextMeeting, ...current]);
@@ -870,15 +870,44 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     setSelectedMeetingId(nextMeeting.id);
     setRecording(false);
     setRecordingSeconds(0);
-    showToast(formatMeetingDate(nextIso) + "の会議を追加しました");
+    showToast("日付未設定の会議を追加しました。会議日を選択してください");
+  }
+
+  async function deleteMeeting(meeting: Meeting) {
+    const label = formatMeetingDate(meeting.date);
+    if (!window.confirm(`${label}の会議を削除しますか？\nこの操作は元に戻せません。`)) return;
+
+    setDeletingMeetingId(meeting.id);
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    try {
+      if (meeting.date) await deleteBundleUnified(meeting.id);
+
+      const remaining = meetings.filter((item) => item.id !== meeting.id);
+      const nextMeetings = remaining.length > 0
+        ? remaining
+        : [{ id: "m-" + Date.now(), date: "", status: "準備中" as const }];
+      setMeetings(nextMeetings);
+
+      if (selectedMeetingId === meeting.id) {
+        resetToEmptyMeeting();
+        setSelectedMeetingId(nextMeetings[0].id);
+      }
+      showToast(`${label}の会議を削除しました`);
+    } catch (error: any) {
+      setSaveState("削除エラー");
+      showToast(error?.message || "会議を削除できませんでした");
+    } finally {
+      setDeletingMeetingId(null);
+    }
   }
 
   function updateMeetingDate(newDate: string) {
-    setMeetings((current) =>
-      current.map((meeting) =>
-        meeting.id === selectedMeetingId ? { ...meeting, date: newDate } : meeting
-      )
-    );
+    setMeetings((current) => current.map((meeting) => {
+      if (meeting.id !== selectedMeetingId) return meeting;
+      const updatedMeeting = { ...meeting, date: newDate };
+      liveStateRef.current.selectedMeeting = updatedMeeting;
+      return updatedMeeting;
+    }));
     markEditing();
     showToast("会議の日付を更新しました");
   }
@@ -1076,8 +1105,8 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
         <div className="meeting-list">
           <p className="group-label">今後の会議</p>
           {meetings.slice(0, 2).map((meeting) => (
-            <button
-              key={meeting.id}
+            <div className="meeting-card-row" key={meeting.id}>
+              <button
               type="button"
               className={"meeting-card " + (meeting.id === selectedMeetingId ? "is-selected" : "")}
               onClick={() => {
@@ -1087,8 +1116,8 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
               }}
             >
               <span className="date-badge">
-                <strong>{formatMeetingDate(meeting.date).replace(/月.+/, "")}</strong>
-                <small>月</small>
+                <strong>{meeting.date ? Number(meeting.date.slice(5, 7)) : "—"}</strong>
+                <small>{meeting.date ? "月" : "未設定"}</small>
               </span>
               <span className="meeting-card-copy">
                 <strong>{formatMeetingDate(meeting.date)}</strong>
@@ -1096,26 +1125,34 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
                   {meeting.status === "確定済み" ? "✓ 会議資料完了" : "準備中"}
                 </em>
               </span>
-            </button>
+              </button>
+              <button className="meeting-delete-button" type="button" disabled={deletingMeetingId === meeting.id} onClick={() => void deleteMeeting(meeting)} aria-label={`${formatMeetingDate(meeting.date)}の会議を削除`} title="会議を削除">
+                <Trash2 aria-hidden="true" />
+              </button>
+            </div>
           ))}
 
           <p className="group-label past-label">過去の会議</p>
           {meetings.slice(2).map((meeting) => (
-            <button
-              key={meeting.id}
+            <div className="meeting-card-row" key={meeting.id}>
+              <button
               type="button"
               className={"meeting-card past " + (meeting.id === selectedMeetingId ? "is-selected" : "")}
               onClick={() => setSelectedMeetingId(meeting.id)}
             >
               <span className="date-badge">
-                <strong>{formatMeetingDate(meeting.date).replace(/月.+/, "")}</strong>
-                <small>月</small>
+                <strong>{meeting.date ? Number(meeting.date.slice(5, 7)) : "—"}</strong>
+                <small>{meeting.date ? "月" : "未設定"}</small>
               </span>
               <span className="meeting-card-copy">
                 <strong>{formatMeetingDate(meeting.date)}</strong>
                 <em className={"status-dot " + (meeting.status === "確定済み" ? "is-done" : "")}>{meeting.status === "確定済み" ? "✓ 会議資料完了" : "準備中"}</em>
               </span>
-            </button>
+              </button>
+              <button className="meeting-delete-button" type="button" disabled={deletingMeetingId === meeting.id} onClick={() => void deleteMeeting(meeting)} aria-label={`${formatMeetingDate(meeting.date)}の会議を削除`} title="会議を削除">
+                <Trash2 aria-hidden="true" />
+              </button>
+            </div>
           ))}
         </div>
 
