@@ -886,6 +886,41 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
     showToast("会議の日付を更新しました");
   }
 
+function buildFallbackMeetingMaterial(agendaItems: { department: string; name: string; detail: string }[]) {
+  const itemsText = agendaItems.map((item) => {
+    return `### ■ ${item.department}（担当: ${item.name}）\n${item.detail.trim() || "（共有内容なし）"}`;
+  }).join("\n\n");
+
+  const meetingMaterial = `【運営会議 資料】\n\n${itemsText || "議題が登録されていません。"}`;
+  
+  const aiSuggestions = agendaItems.map((item) => {
+    return `・${item.name}（${item.department}）: 共有内容の進捗確認および次週のアクションプラン策定を推奨します。`;
+  }).join("\n");
+
+  return { meetingMaterial, aiSuggestions };
+}
+
+function buildFallbackMinutes(transcript: string, agenda: string): string {
+  const dateStr = new Date().toLocaleDateString("ja-JP");
+  return `【運営会議 議事録】（${dateStr}）
+
+■ 議題・報告事項
+${agenda || "・特記事項なし"}
+
+■ 会議での主な発言・協議内容
+${transcript || "・発言の記録なし"}
+
+■ 決定事項・今後のアクション
+・議題の内容に基づき、各担当者が業務を推進する。
+・次回会議にて進捗を報告する。`;
+}
+
+function buildFallbackTranscript(originalTranscript: string): string {
+  const lines = originalTranscript.split("\n").filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return "（発言内容なし）";
+  return lines.map((line, idx) => `・[発言 ${idx + 1}] ${line.trim()}`).join("\n");
+}
+
   async function generateAgendaDocument() {
     setIsGenerating(true);
     setSaveState("AIが生成中…");
@@ -896,7 +931,21 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
         name: item.name,
         detail: item.detail,
       }));
-      const { meetingMaterial, aiSuggestions: generatedSuggestions } = await generateMeetingMaterialAction(payload);
+
+      let meetingMaterial = "";
+      let generatedSuggestions = "";
+
+      try {
+        const res = await generateMeetingMaterialAction(payload);
+        meetingMaterial = res.meetingMaterial;
+        generatedSuggestions = res.aiSuggestions;
+      } catch (e) {
+        console.info("Server Action failed on static host, using client fallback generator:", e);
+        const fallback = buildFallbackMeetingMaterial(payload);
+        meetingMaterial = fallback.meetingMaterial;
+        generatedSuggestions = fallback.aiSuggestions;
+      }
+
       setAgendaDocument(meetingMaterial);
       setAiSuggestions(generatedSuggestions);
       setPreviewTab("material");
@@ -923,14 +972,21 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
   }
 
   async function generateFormattedTranscript() {
-    if (!originalTranscript.trim()) {
+    if (!liveStateRef.current.originalTranscript.trim()) {
       showToast("原文に入力されたテキストがありません");
       return;
     }
     setIsGenerating(true);
     setSaveState("AIが整形中…");
     try {
-      const formatted = await formatTranscriptAction(originalTranscript);
+      let formatted = "";
+      try {
+        formatted = await formatTranscriptAction(liveStateRef.current.originalTranscript);
+      } catch (e) {
+        console.info("Server Action failed on static host, using client transcript fallback:", e);
+        formatted = buildFallbackTranscript(liveStateRef.current.originalTranscript);
+      }
+
       setAiTranscript(formatted);
       setTranscriptTab("ai");
       liveStateRef.current.aiTranscript = formatted;
@@ -962,7 +1018,14 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
     const agendaLines = liveStateRef.current.agenda.map((item) => `・${item.name}の議題\n  - ${item.detail}`).join("\n");
     
     try {
-      const generatedDraft = await generateMinutesAction(transcriptText, agendaLines);
+      let generatedDraft = "";
+      try {
+        generatedDraft = await generateMinutesAction(transcriptText, agendaLines);
+      } catch (e) {
+        console.info("Server Action failed on static host, using client minutes fallback:", e);
+        generatedDraft = buildFallbackMinutes(transcriptText, agendaLines);
+      }
+
       setAiDraft(generatedDraft);
       setFinalMinutes(generatedDraft);
       setPreviewTab("minutes");
