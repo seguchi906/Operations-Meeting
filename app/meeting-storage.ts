@@ -2,8 +2,8 @@ import { neon } from "@neondatabase/serverless";
 import type { MeetingBundle } from "./meeting-types";
 
 function database() {
-  const url = process.env.OPERATIONS_MEETING_DATABASE_URL;
-  if (!url) throw new Error("OPERATIONS_MEETING_DATABASE_URL が設定されていません。");
+  const url = process.env.OPERATIONS_MEETING_DATABASE_URL || process.env.DATABASE_URL;
+  if (!url) throw new Error("OPERATIONS_MEETING_DATABASE_URL または DATABASE_URL が設定されていません。");
   return neon(url);
 }
 
