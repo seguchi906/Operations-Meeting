@@ -404,15 +404,37 @@ export default function Home() {
     void restoreMeetingList();
   }, []);
 
+  function resetToEmptyMeeting() {
+    setAgenda([]);
+    setAgendaDocument("");
+    setAiSuggestions("");
+    setLowBudgetItems(null);
+    setOverdueOutsourcingItems(null);
+    setOverdueIncompleteItems(null);
+    setRiskReport(null);
+    setAiTranscript("");
+    setOriginalTranscript("");
+    setAiDraft("");
+    setFinalMinutes("");
+    setLastSavedAt("");
+  }
+
   useEffect(() => {
     let cancelled = false;
     async function restoreMeeting() {
       setIsBundleLoading(true);
       try {
         const bundle = await loadMeetingBundleAction(selectedMeetingId);
-        if (!cancelled && bundle) applyMeetingBundle(bundle);
+        if (!cancelled) {
+          if (bundle) {
+            applyMeetingBundle(bundle);
+          } else {
+            resetToEmptyMeeting();
+          }
+        }
       } catch (error) {
         console.info("保存済み会議の読み込みをスキップしました:", error);
+        if (!cancelled) resetToEmptyMeeting();
       } finally {
         if (!cancelled) setIsBundleLoading(false);
       }
@@ -686,6 +708,7 @@ export default function Home() {
       status: "準備中",
     };
     setMeetings((current) => [nextMeeting, ...current]);
+    resetToEmptyMeeting();
     setSelectedMeetingId(nextMeeting.id);
     setRecording(false);
     setRecordingSeconds(0);
