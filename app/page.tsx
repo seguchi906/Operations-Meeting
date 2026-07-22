@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
 import { generateMeetingMaterialClient, generateMinutesClient, formatTranscriptClient } from "./gemini-client";
-import { saveMeetingBundleClient, loadMeetingBundleClient } from "./neon-client";
+import { saveMeetingBundleClient, loadMeetingBundleClient, listStoredMeetingsClient } from "./neon-client";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
 import type { MeetingBundle } from "./meeting-types";
 
@@ -298,9 +298,6 @@ const aiTranscriptSeed =
 const originalTranscriptSeed =
   "熊本さん：えーと東地区の水路更新ですが、現地協議は終わっています。今週中には修正版を出す予定です。測量データの不足も、追加で確認して解消しています。\n\n大久保さん：南部幹線道路は8月に受注の見込みです。ほかの案件と着手が重なりそうなので、技術1課から一人お願いできるか相談したいです。";
 
-const minutesDraftSeed =
-  "【決定事項】\n・東地区水路更新設計の修正版を7月31日までに提出する。\n・南部幹線道路予備設計には、技術1課から1名を応援配置する方向で調整する。\n・下期案件は品質チェック日を工程表へ明記する。\n\n【継続確認】\n・応援配置する担当者は、両課長が7月29日までに決定する。";
-
 const finalMinutesSeed =
   "1. 東地区水路更新設計\n現地協議および測量データの追加確認は完了。熊本さんが修正版を7月31日までに提出する。\n\n2. 南部幹線道路予備設計\n8月の受注を想定し、技術1課から1名の応援配置を検討する。担当者は熊本課長・大久保課長が7月29日までに決定する。\n\n3. 下期の品質管理\n全案件の工程表に品質チェック日を明記し、レビューを前倒しする。";
 
@@ -333,7 +330,7 @@ export default function Home() {
   const [previewTab, setPreviewTab] = useState<"material" | "suggestions" | "minutes" | "risk" | "attendance">("material");
   const [aiTranscript, setAiTranscript] = useState(aiTranscriptSeed);
   const [originalTranscript, setOriginalTranscript] = useState(originalTranscriptSeed);
-  const [aiDraft, setAiDraft] = useState(minutesDraftSeed);
+  const [aiDraft, setAiDraft] = useState("");
   const [finalMinutes, setFinalMinutes] = useState(finalMinutesSeed);
   const [agendaDocument, setAgendaDocument] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState("");
@@ -393,10 +390,15 @@ export default function Home() {
   useEffect(() => {
     async function restoreMeetingList() {
       try {
-        const storedMeetings = await listStoredMeetingsAction();
+        let storedMeetings;
+        try {
+          storedMeetings = await listStoredMeetingsAction();
+        } catch {
+          storedMeetings = await listStoredMeetingsClient();
+        }
         setMeetings((current) => {
           const merged = new Map(current.map((meeting) => [meeting.id, meeting]));
-          for (const meeting of storedMeetings) merged.set(meeting.id, meeting);
+          for (const meeting of storedMeetings) merged.set(meeting.id, meeting as Meeting);
           return [...merged.values()].sort((a, b) => b.date.localeCompare(a.date));
         });
       } catch (error) {
@@ -450,64 +452,32 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
     setLastSavedAt("");
   }
 
-function saveLocalBundle(bundle: MeetingBundle) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem("ops_meeting_bundle_" + bundle.meetingId, JSON.stringify(bundle));
-  } catch (e) {
-    console.warn("Failed to save to localStorage:", e);
-  }
-}
-
-function loadLocalBundle(meetingId: string): MeetingBundle | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem("ops_meeting_bundle_" + meetingId);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-async function saveBundleUnified(bundle: MeetingBundle): Promise<{ updatedAt: string; isNeon: boolean }> {
-  saveLocalBundle(bundle);
+async function saveBundleUnified(bundle: MeetingBundle): Promise<{ updatedAt: string }> {
   try {
     const result = await saveMeetingBundleAction(bundle);
-    saveLocalBundle({ ...bundle, updatedAt: result.updatedAt });
-    return { updatedAt: result.updatedAt, isNeon: true };
-  } catch {
+    return { updatedAt: result.updatedAt };
+  } catch (serverError) {
     try {
       const result = await saveMeetingBundleClient(bundle);
-      saveLocalBundle({ ...bundle, updatedAt: result.updatedAt });
-      return { updatedAt: result.updatedAt, isNeon: true };
-    } catch (e) {
-      console.warn("Neon database save failed, saved to local cache:", e);
-      const updatedAt = new Date().toISOString();
-      saveLocalBundle({ ...bundle, updatedAt });
-      return { updatedAt, isNeon: false };
+      return { updatedAt: result.updatedAt };
+    } catch (clientError) {
+      console.error("Neon database save failed:", { serverError, clientError });
+      throw new Error("データベースに保存できませんでした。通信状況を確認して、もう一度お試しください。");
     }
   }
 }
 
 async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | null> {
   try {
-    const bundle = await loadMeetingBundleAction(meetingId);
-    if (bundle) {
-      saveLocalBundle(bundle);
-      return bundle;
-    }
-  } catch {
+    return await loadMeetingBundleAction(meetingId);
+  } catch (serverError) {
     try {
-      const bundle = await loadMeetingBundleClient(meetingId);
-      if (bundle) {
-        saveLocalBundle(bundle);
-        return bundle;
-      }
-    } catch (e) {
-      console.warn("Neon database load failed, falling back to local cache:", e);
+      return await loadMeetingBundleClient(meetingId);
+    } catch (clientError) {
+      console.error("Neon database load failed:", { serverError, clientError });
+      throw new Error("データベースから会議資料を読み込めませんでした。");
     }
   }
-  return loadLocalBundle(meetingId);
 }
 
   useEffect(() => {
@@ -524,14 +494,11 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
           }
         }
       } catch (error) {
-        console.info("読み込みエラー、ローカルのキャッシュを確認します:", error);
+        console.error("会議資料の読み込みに失敗しました:", error);
         if (!cancelled) {
-          const localBundle = loadLocalBundle(selectedMeetingId);
-          if (localBundle) {
-            applyMeetingBundle(localBundle);
-          } else {
-            resetToEmptyMeeting();
-          }
+          resetToEmptyMeeting();
+          setSaveState("読込エラー");
+          showToast("データベースから会議資料を読み込めませんでした");
         }
       } finally {
         if (!cancelled) setIsBundleLoading(false);
@@ -580,10 +547,15 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
       : meeting));
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(async () => {
-      const bundle = createMeetingBundle("準備中");
-      const { updatedAt, isNeon } = await saveBundleUnified(bundle);
-      setLastSavedAt(updatedAt);
-      setSaveState(isNeon ? "Neonに自動保存済み" : "ローカルに自動保存済み");
+      try {
+        const bundle = createMeetingBundle("準備中");
+        const { updatedAt } = await saveBundleUnified(bundle);
+        setLastSavedAt(updatedAt);
+        setSaveState("Neonに自動保存済み");
+      } catch (error: any) {
+        setSaveState("保存エラー");
+        showToast(error?.message || "データベースに自動保存できませんでした");
+      }
     }, 1200);
   }
 
@@ -650,12 +622,12 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     setSaveState("保存中…");
     const bundle = createMeetingBundle("確定済み");
     try {
-      const { updatedAt, isNeon } = await saveBundleUnified(bundle);
+      const { updatedAt } = await saveBundleUnified(bundle);
       setMeetings((current) => current.map((meeting) => meeting.id === selectedMeeting.id
         ? { ...meeting, status: "確定済み" }
         : meeting));
       setLastSavedAt(updatedAt);
-      setSaveState(isNeon ? "Neonに保存済み" : "ローカルに保存済み");
+      setSaveState("Neonに保存済み");
       showToast(`${formatMeetingDate(selectedMeeting.date)}の会議資料を完了しました`);
     } catch (error: any) {
       setSaveState("保存エラー");
@@ -670,10 +642,10 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     setSaveState("保存中…");
     const bundle = createMeetingBundle("準備中");
     try {
-      const { updatedAt, isNeon } = await saveBundleUnified(bundle);
+      const { updatedAt } = await saveBundleUnified(bundle);
       setMeetings((current) => current.map((meeting) => meeting.id === selectedMeeting.id ? { ...meeting, status: "準備中" } : meeting));
       setLastSavedAt(updatedAt);
-      setSaveState(isNeon ? "Neonに保存済み" : "ローカルに保存済み");
+      setSaveState("Neonに保存済み");
       showToast("編集を再開しました");
     } catch (error: any) {
       setSaveState("保存エラー");
@@ -689,14 +661,14 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     const bundle = createMeetingBundle("準備中");
     try {
-      const { updatedAt, isNeon } = await saveBundleUnified(bundle);
+      const { updatedAt } = await saveBundleUnified(bundle);
       setLastSavedAt(updatedAt);
-      setSaveState(isNeon ? "Neonに保存済み" : "ローカルに保存済み");
+      setSaveState("Neonに保存済み");
       const targetItem = liveStateRef.current.agenda.find((i) => i.id === itemId);
       showToast((targetItem?.department || targetItem?.name || "議題") + "の共有内容を保存しました");
     } catch (error: any) {
-      setSaveState("ローカルに保存済み");
-      showToast("議題の共有内容をローカルに保存しました");
+      setSaveState("保存エラー");
+      showToast(error?.message || "議題の共有内容をデータベースに保存できませんでした");
     } finally {
       setSavingAgendaId(null);
     }
@@ -708,13 +680,13 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     const bundle = createMeetingBundle("準備中");
     try {
-      const { updatedAt, isNeon } = await saveBundleUnified(bundle);
+      const { updatedAt } = await saveBundleUnified(bundle);
       setLastSavedAt(updatedAt);
-      setSaveState(isNeon ? "Neonに保存済み" : "ローカルに保存済み");
+      setSaveState("Neonに保存済み");
       showToast("トランスクリプトを保存しました");
     } catch (error: any) {
-      setSaveState("ローカルに保存済み");
-      showToast("トランスクリプトをローカルに保存しました");
+      setSaveState("保存エラー");
+      showToast(error?.message || "トランスクリプトをデータベースに保存できませんでした");
     } finally {
       setIsTranscriptSaving(false);
     }
@@ -725,13 +697,13 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     setSaveState("保存中…");
     const bundle = createMeetingBundle("準備中");
     try {
-      const { updatedAt, isNeon } = await saveBundleUnified(bundle);
+      const { updatedAt } = await saveBundleUnified(bundle);
       setLastSavedAt(updatedAt);
-      setSaveState(isNeon ? "Neonに保存済み" : "ローカルに保存済み");
+      setSaveState("Neonに保存済み");
       showToast("議事録の下書きを保存しました");
     } catch (error: any) {
-      setSaveState("ローカルに保存済み");
-      showToast("議事録の下書きをローカルに保存しました");
+      setSaveState("保存エラー");
+      showToast(error?.message || "議事録の下書きをデータベースに保存できませんでした");
     } finally {
       setIsMinutesDraftSaving(false);
     }
@@ -743,16 +715,16 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     setSaveState("保存中…");
     const bundle = createMeetingBundle("確定済み");
     try {
-      const { updatedAt, isNeon } = await saveBundleUnified(bundle);
+      const { updatedAt } = await saveBundleUnified(bundle);
       setMeetings((current) => current.map((meeting) => meeting.id === selectedMeeting.id
         ? { ...meeting, status: "確定済み" }
         : meeting));
       setLastSavedAt(updatedAt);
-      setSaveState(isNeon ? "Neonに保存済み" : "ローカルに保存済み");
+      setSaveState("Neonに保存済み");
       showToast("議事録を確定し、保存しました");
     } catch (error: any) {
-      setSaveState("ローカルに保存済み");
-      showToast("議事録を確定し、ローカルに保存しました");
+      setSaveState("保存エラー");
+      showToast(error?.message || "議事録をデータベースに保存できませんでした");
     } finally {
       setIsMinutesConfirming(false);
     }
@@ -763,9 +735,9 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
     setSaveState("保存中…");
     const bundle = createMeetingBundle("準備中");
     try {
-      const { updatedAt, isNeon } = await saveBundleUnified(bundle);
+      const { updatedAt } = await saveBundleUnified(bundle);
       setLastSavedAt(updatedAt);
-      setSaveState(isNeon ? "Neonに保存済み" : "ローカルに保存済み");
+      setSaveState("Neonに保存済み");
       showToast(kind === "budget" ? "残り予算を保存しました" : kind === "outsourcing" ? "外注契約を保存しました" : kind === "incomplete" ? "期限超過業務を保存しました" : "業務リスク度判定を保存しました");
     } catch (error: any) {
       setSaveState("保存エラー");
@@ -945,14 +917,9 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
       liveStateRef.current.aiSuggestions = generatedSuggestions;
 
       const bundle = createMeetingBundle("準備中");
-      saveLocalBundle(bundle);
-      try {
-        const result = await saveMeetingBundleAction(bundle);
-        setLastSavedAt(result.updatedAt);
-        setSaveState("Neonに保存済み");
-      } catch {
-        setSaveState("ローカルに保存済み");
-      }
+      const result = await saveBundleUnified(bundle);
+      setLastSavedAt(result.updatedAt);
+      setSaveState("Neonに保存済み");
 
       showToast("議題から会議資料とAI提案を生成し、保存しました");
     } catch (error: any) {
@@ -984,14 +951,9 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
       liveStateRef.current.aiTranscript = formatted;
 
       const bundle = createMeetingBundle("準備中");
-      saveLocalBundle(bundle);
-      try {
-        const result = await saveMeetingBundleAction(bundle);
-        setLastSavedAt(result.updatedAt);
-        setSaveState("Neonに保存済み");
-      } catch {
-        setSaveState("ローカルに保存済み");
-      }
+      const result = await saveBundleUnified(bundle);
+      setLastSavedAt(result.updatedAt);
+      setSaveState("Neonに保存済み");
 
       showToast("原文からAI整形版を生成し、保存しました");
     } catch (error: any) {
@@ -1025,14 +987,9 @@ async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | nul
       liveStateRef.current.finalMinutes = generatedDraft;
 
       const bundle = createMeetingBundle("準備中");
-      saveLocalBundle(bundle);
-      try {
-        const result = await saveMeetingBundleAction(bundle);
-        setLastSavedAt(result.updatedAt);
-        setSaveState("Neonに保存済み");
-      } catch {
-        setSaveState("ローカルに保存済み");
-      }
+      const result = await saveBundleUnified(bundle);
+      setLastSavedAt(result.updatedAt);
+      setSaveState("Neonに保存済み");
 
       showToast("AIで議事録を生成し、保存しました");
     } catch (error: any) {
