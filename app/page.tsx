@@ -504,6 +504,38 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
     return () => { cancelled = true; };
   }, [selectedMeetingId]);
 
+  const liveStateRef = useRef({
+    selectedMeeting,
+    agenda,
+    agendaDocument,
+    aiSuggestions,
+    lowBudgetItems,
+    overdueOutsourcingItems,
+    overdueIncompleteItems,
+    riskReport,
+    aiTranscript,
+    originalTranscript,
+    aiDraft,
+    finalMinutes,
+  });
+
+  useEffect(() => {
+    liveStateRef.current = {
+      selectedMeeting,
+      agenda,
+      agendaDocument,
+      aiSuggestions,
+      lowBudgetItems,
+      overdueOutsourcingItems,
+      overdueIncompleteItems,
+      riskReport,
+      aiTranscript,
+      originalTranscript,
+      aiDraft,
+      finalMinutes,
+    };
+  });
+
   function markEditing() {
     setSaveState("保存中…");
     setMeetings((current) => current.map((meeting) => meeting.id === selectedMeetingId
@@ -511,13 +543,14 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
       : meeting));
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(async () => {
+      const bundle = createMeetingBundle("準備中");
+      saveLocalBundle(bundle);
       try {
-        const result = await saveMeetingBundleAction(createMeetingBundle("準備中"));
+        const result = await saveMeetingBundleAction(bundle);
         setLastSavedAt(result.updatedAt);
         setSaveState("Neonに自動保存済み");
       } catch (error) {
-        console.error("Auto-save to Neon failed:", error);
-        setSaveState("保存エラー");
+        setSaveState("ローカルに自動保存済み");
       }
     }, 1200);
   }
@@ -544,19 +577,39 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
     setAiDraft(bundle.minutes?.aiDraft ?? "");
     setFinalMinutes(bundle.minutes?.final ?? "");
     setLastSavedAt(bundle.updatedAt ?? "");
+    liveStateRef.current = {
+      selectedMeeting,
+      agenda: bundle.agendaItems,
+      agendaDocument: bundle.meetingMaterial,
+      aiSuggestions: bundle.aiSuggestions,
+      lowBudgetItems: bundle.businessStatus?.lowBudgetItems ?? null,
+      overdueOutsourcingItems: bundle.businessStatus?.overdueOutsourcingItems ?? null,
+      overdueIncompleteItems: bundle.businessStatus?.overdueIncompleteItems ?? null,
+      riskReport: bundle.businessStatus?.riskReport ?? null,
+      aiTranscript: bundle.transcript?.ai ?? "",
+      originalTranscript: bundle.transcript?.original ?? "",
+      aiDraft: bundle.minutes?.aiDraft ?? "",
+      finalMinutes: bundle.minutes?.final ?? "",
+    };
   }
 
   function createMeetingBundle(status: MeetingBundle["status"]): MeetingBundle {
+    const live = liveStateRef.current;
     return {
-      meetingId: selectedMeeting.id,
-      meetingDate: selectedMeeting.date,
+      meetingId: live.selectedMeeting.id,
+      meetingDate: live.selectedMeeting.date,
       status,
-      agendaItems: agenda,
-      meetingMaterial: agendaDocument,
-      aiSuggestions,
-      businessStatus: { lowBudgetItems, overdueOutsourcingItems, overdueIncompleteItems, riskReport },
-      transcript: { ai: aiTranscript, original: originalTranscript },
-      minutes: { aiDraft, final: finalMinutes },
+      agendaItems: live.agenda,
+      meetingMaterial: live.agendaDocument,
+      aiSuggestions: live.aiSuggestions,
+      businessStatus: {
+        lowBudgetItems: live.lowBudgetItems,
+        overdueOutsourcingItems: live.overdueOutsourcingItems,
+        overdueIncompleteItems: live.overdueIncompleteItems,
+        riskReport: live.riskReport,
+      },
+      transcript: { ai: live.aiTranscript, original: live.originalTranscript },
+      minutes: { aiDraft: live.aiDraft, final: live.finalMinutes },
     };
   }
 
