@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
+import { generateMeetingMaterialClient, generateMinutesClient, formatTranscriptClient } from "./gemini-client";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
 import type { MeetingBundle } from "./meeting-types";
 
@@ -886,41 +887,6 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
     showToast("会議の日付を更新しました");
   }
 
-function buildFallbackMeetingMaterial(agendaItems: { department: string; name: string; detail: string }[]) {
-  const itemsText = agendaItems.map((item) => {
-    return `### ■ ${item.department}（担当: ${item.name}）\n${item.detail.trim() || "（共有内容なし）"}`;
-  }).join("\n\n");
-
-  const meetingMaterial = `【運営会議 資料】\n\n${itemsText || "議題が登録されていません。"}`;
-  
-  const aiSuggestions = agendaItems.map((item) => {
-    return `・${item.name}（${item.department}）: 共有内容の進捗確認および次週のアクションプラン策定を推奨します。`;
-  }).join("\n");
-
-  return { meetingMaterial, aiSuggestions };
-}
-
-function buildFallbackMinutes(transcript: string, agenda: string): string {
-  const dateStr = new Date().toLocaleDateString("ja-JP");
-  return `【運営会議 議事録】（${dateStr}）
-
-■ 議題・報告事項
-${agenda || "・特記事項なし"}
-
-■ 会議での主な発言・協議内容
-${transcript || "・発言の記録なし"}
-
-■ 決定事項・今後のアクション
-・議題の内容に基づき、各担当者が業務を推進する。
-・次回会議にて進捗を報告する。`;
-}
-
-function buildFallbackTranscript(originalTranscript: string): string {
-  const lines = originalTranscript.split("\n").filter((l) => l.trim().length > 0);
-  if (lines.length === 0) return "（発言内容なし）";
-  return lines.map((line, idx) => `・[発言 ${idx + 1}] ${line.trim()}`).join("\n");
-}
-
   async function generateAgendaDocument() {
     setIsGenerating(true);
     setSaveState("AIが生成中…");
@@ -936,14 +902,16 @@ function buildFallbackTranscript(originalTranscript: string): string {
       let generatedSuggestions = "";
 
       try {
+        // Try Server Action first (works in dev mode with server runtime)
         const res = await generateMeetingMaterialAction(payload);
         meetingMaterial = res.meetingMaterial;
         generatedSuggestions = res.aiSuggestions;
       } catch (e) {
-        console.info("Server Action failed on static host, using client fallback generator:", e);
-        const fallback = buildFallbackMeetingMaterial(payload);
-        meetingMaterial = fallback.meetingMaterial;
-        generatedSuggestions = fallback.aiSuggestions;
+        // Server Action unavailable (static hosting) – call Gemini from browser
+        console.info("Server Action unavailable, calling Gemini API from client:", e);
+        const res = await generateMeetingMaterialClient(payload);
+        meetingMaterial = res.meetingMaterial;
+        generatedSuggestions = res.aiSuggestions;
       }
 
       setAgendaDocument(meetingMaterial);
@@ -983,8 +951,8 @@ function buildFallbackTranscript(originalTranscript: string): string {
       try {
         formatted = await formatTranscriptAction(liveStateRef.current.originalTranscript);
       } catch (e) {
-        console.info("Server Action failed on static host, using client transcript fallback:", e);
-        formatted = buildFallbackTranscript(liveStateRef.current.originalTranscript);
+        console.info("Server Action unavailable, calling Gemini API from client:", e);
+        formatted = await formatTranscriptClient(liveStateRef.current.originalTranscript);
       }
 
       setAiTranscript(formatted);
@@ -1022,8 +990,8 @@ function buildFallbackTranscript(originalTranscript: string): string {
       try {
         generatedDraft = await generateMinutesAction(transcriptText, agendaLines);
       } catch (e) {
-        console.info("Server Action failed on static host, using client minutes fallback:", e);
-        generatedDraft = buildFallbackMinutes(transcriptText, agendaLines);
+        console.info("Server Action unavailable, calling Gemini API from client:", e);
+        generatedDraft = await generateMinutesClient(transcriptText, agendaLines);
       }
 
       setAiDraft(generatedDraft);
