@@ -3,6 +3,7 @@
 import { GoogleGenAI } from "@google/genai";
 import meetingMaterialPromptTemplate from "../prompts/meeting-material.md?raw";
 import minutesPromptTemplate from "../prompts/minutes.md?raw";
+import formatTranscriptPromptTemplate from "../prompts/format-transcript.md?raw";
 import ritaGuidance from "../prompts/rita-guidance.md?raw";
 import { buildProgressRiskReport, fetchLowRemainingBudgets, fetchOverdueIncompleteProjects, fetchOverdueOutsourcingContracts } from "./progress-risk";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
@@ -66,6 +67,30 @@ export async function generateMinutesAction(transcript: string, agenda: string):
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     throw new Error(error.message || "Failed to generate minutes.");
+  }
+}
+
+export async function formatTranscriptAction(originalTranscript: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not set. Please configure it in your environment variables.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const prompt = fillPrompt(formatTranscriptPromptTemplate, {
+    ORIGINAL_TRANSCRIPT: originalTranscript || "なし",
+  });
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    return response.text || "トランスクリプトの整形に失敗しました。";
+  } catch (error: any) {
+    console.error("Gemini API Error:", error);
+    throw new Error(error.message || "Failed to format transcript.");
   }
 }
 

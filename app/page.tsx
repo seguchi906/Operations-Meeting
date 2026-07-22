@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import { generateAiSuggestionsAction, generateMinutesAction, generateMeetingMaterialAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
+import { generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
 import type { MeetingBundle } from "./meeting-types";
 
@@ -725,6 +725,27 @@ export default function Home() {
     }
   }
 
+  async function generateFormattedTranscript() {
+    if (!originalTranscript.trim()) {
+      showToast("原文に入力されたテキストがありません");
+      return;
+    }
+    setIsGenerating(true);
+    setSaveState("AIが整形中…");
+    try {
+      const formatted = await formatTranscriptAction(originalTranscript);
+      setAiTranscript(formatted);
+      setTranscriptTab("ai");
+      showToast("原文からAI整形版を生成しました");
+    } catch (error: any) {
+      console.error("整形エラー:", error);
+      showToast("エラー: " + (error.message || "AI整形の生成に失敗しました"));
+    } finally {
+      setIsGenerating(false);
+      markEditing();
+    }
+  }
+
   async function regenerateMinutes() {
     setIsGenerating(true);
     setSaveState("AIが整形中…");
@@ -1216,7 +1237,12 @@ export default function Home() {
                   <span className="section-index">02</span>
                   <div><h2>トランスクリプト</h2><p>会議中の発言をAIが読みやすく整形します</p></div>
                 </div>
-                <span className="ai-badge">AI アシスト</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                  <button className="text-button" type="button" onClick={generateFormattedTranscript} disabled={isGenerating}>
+                    {isGenerating ? "⏳ 整形中..." : "↻ AIで整形版を生成"}
+                  </button>
+                  <span className="ai-badge">AI アシスト</span>
+                </div>
               </div>
 
               <div className="transcript-card">
