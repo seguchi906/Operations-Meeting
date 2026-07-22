@@ -53,6 +53,9 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+import { AuthProvider } from "./AuthProvider";
+import { AuthWrapper } from "./AuthWrapper";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -60,7 +63,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          <AuthWrapper>{children}</AuthWrapper>
+        </AuthProvider>
+      </body>
     </html>
   );
 }
