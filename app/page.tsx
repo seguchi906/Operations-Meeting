@@ -404,8 +404,37 @@ export default function Home() {
     void restoreMeetingList();
   }, []);
 
+function createDefaultEmptyAgenda(): AgendaItem[] {
+  return [
+    {
+      id: "agenda-1",
+      department: "技術1課",
+      name: "熊本",
+      initials: "熊",
+      detail: "",
+      due: "未設定",
+    },
+    {
+      id: "agenda-2",
+      department: "技術2課",
+      name: "大久保",
+      initials: "久",
+      detail: "",
+      due: "未設定",
+    },
+    {
+      id: "agenda-3",
+      department: "執行役員",
+      name: "瀬口",
+      initials: "瀬",
+      detail: "",
+      due: "未設定",
+    },
+  ];
+}
+
   function resetToEmptyMeeting() {
-    setAgenda([]);
+    setAgenda(createDefaultEmptyAgenda());
     setAgendaDocument("");
     setAiSuggestions("");
     setLowBudgetItems(null);
@@ -1221,36 +1250,51 @@ export default function Home() {
                   <span className="section-index">01</span>
                   <div><h2>議題・担当者</h2><p>各担当者の共有内容を会議前に揃えます</p></div>
                 </div>
-                <button className="text-button" type="button" onClick={generateAgendaDocument} disabled={isGenerating}>
-                  {isGenerating ? "⏳..." : "✨ AIで会議資料を生成"}
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                  <button className="text-button" type="button" onClick={addAgendaItem}>
+                    ＋ 議題を追加
+                  </button>
+                  <button className="text-button" type="button" onClick={generateAgendaDocument} disabled={isGenerating}>
+                    {isGenerating ? "⏳..." : "✨ AIで会議資料を生成"}
+                  </button>
+                </div>
               </div>
 
               <div className="agenda-list">
-                {agenda.map((item) => (
-                  <article className="agenda-card" key={item.id} id={item.id}>
-                    <div className="agenda-owner">
-                      <span className="owner-avatar">{item.initials}</span>
-                      <span><small>{item.department}</small><strong>{item.name}</strong></span>
-                    </div>
-                    <div className="agenda-fields">
-                      <textarea
-                        aria-label={item.department + "の共有内容"}
-                        value={item.detail}
-                        onChange={(event) => updateAgenda(item.id, "detail", event.target.value)}
-                      />
-                      <div className="agenda-meta"><span>提出期限　{item.due}</span><span>担当者に共有済み</span></div>
-                    </div>
-                    <button
-                      className="save-item-button"
-                      type="button"
-                      disabled={savingAgendaId === item.id}
-                      onClick={() => saveAgendaItem(item)}
-                    >
-                      {savingAgendaId === item.id ? "保存中…" : "保存"}
+                {agenda.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "2rem 1rem", border: "1px dashed var(--border)", borderRadius: "8px", background: "var(--surface)" }}>
+                    <p style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>議題・担当者が登録されていません</p>
+                    <button className="primary-small-button" type="button" onClick={() => setAgenda(createDefaultEmptyAgenda())}>
+                      標準担当者の入力欄を表示する
                     </button>
-                  </article>
-                ))}
+                  </div>
+                ) : (
+                  agenda.map((item) => (
+                    <article className="agenda-card" key={item.id} id={item.id}>
+                      <div className="agenda-owner">
+                        <span className="owner-avatar">{item.initials}</span>
+                        <span><small>{item.department}</small><strong>{item.name}</strong></span>
+                      </div>
+                      <div className="agenda-fields">
+                        <textarea
+                          aria-label={item.department + "の共有内容"}
+                          placeholder="共有する内容と確認したいことを入力してください"
+                          value={item.detail}
+                          onChange={(event) => updateAgenda(item.id, "detail", event.target.value)}
+                        />
+                        <div className="agenda-meta"><span>提出期限　{item.due}</span><span>担当者に共有済み</span></div>
+                      </div>
+                      <button
+                        className="save-item-button"
+                        type="button"
+                        disabled={savingAgendaId === item.id}
+                        onClick={() => saveAgendaItem(item)}
+                      >
+                        {savingAgendaId === item.id ? "保存中…" : "保存"}
+                      </button>
+                    </article>
+                  ))
+                )}
               </div>
             </section>
 
