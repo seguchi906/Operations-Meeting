@@ -653,19 +653,21 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
     }
   }
 
-  async function saveAgendaItem(item: AgendaItem) {
-    setSavingAgendaId(item.id);
+  async function saveAgendaItem(itemId: string) {
+    setSavingAgendaId(itemId);
     setSaveState("保存中…");
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
     const bundle = createMeetingBundle("準備中");
     saveLocalBundle(bundle);
     try {
       const result = await saveMeetingBundleAction(bundle);
       setLastSavedAt(result.updatedAt);
       setSaveState("Neonに保存済み");
-      showToast(item.department + "の議題を保存しました");
+      const targetItem = liveStateRef.current.agenda.find((i) => i.id === itemId);
+      showToast((targetItem?.department || targetItem?.name || "議題") + "の共有内容を保存しました");
     } catch (error: any) {
-      setSaveState("保存エラー");
-      showToast(error?.message || "議題を保存できませんでした");
+      setSaveState("ローカルに保存済み");
+      showToast("議題の共有内容をローカルに保存しました");
     } finally {
       setSavingAgendaId(null);
     }
@@ -674,6 +676,7 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
   async function saveTranscript() {
     setIsTranscriptSaving(true);
     setSaveState("保存中…");
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
     const bundle = createMeetingBundle("準備中");
     saveLocalBundle(bundle);
     try {
@@ -682,8 +685,8 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
       setSaveState("Neonに保存済み");
       showToast("トランスクリプトを保存しました");
     } catch (error: any) {
-      setSaveState("保存エラー");
-      showToast(error?.message || "トランスクリプトを保存できませんでした");
+      setSaveState("ローカルに保存済み");
+      showToast("トランスクリプトをローカルに保存しました");
     } finally {
       setIsTranscriptSaving(false);
     }
@@ -819,9 +822,11 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
   }
 
   function updateAgenda(id: string, field: "detail", value: string) {
-    setAgenda((current) =>
-      current.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
-    );
+    setAgenda((current) => {
+      const updated = current.map((item) => (item.id === id ? { ...item, [field]: value } : item));
+      liveStateRef.current.agenda = updated;
+      return updated;
+    });
     markEditing();
   }
 
@@ -886,7 +891,7 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
     setSaveState("AIが生成中…");
     
     try {
-      const payload = agenda.map((item) => ({
+      const payload = liveStateRef.current.agenda.map((item) => ({
         department: item.department,
         name: item.name,
         detail: item.detail,
@@ -894,13 +899,26 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
       const { meetingMaterial, aiSuggestions: generatedSuggestions } = await generateMeetingMaterialAction(payload);
       setAgendaDocument(meetingMaterial);
       setAiSuggestions(generatedSuggestions);
-      showToast("議題から会議資料とAI提案を生成しました");
+      setPreviewTab("material");
+      liveStateRef.current.agendaDocument = meetingMaterial;
+      liveStateRef.current.aiSuggestions = generatedSuggestions;
+
+      const bundle = createMeetingBundle("準備中");
+      saveLocalBundle(bundle);
+      try {
+        const result = await saveMeetingBundleAction(bundle);
+        setLastSavedAt(result.updatedAt);
+        setSaveState("Neonに保存済み");
+      } catch {
+        setSaveState("ローカルに保存済み");
+      }
+
+      showToast("議題から会議資料とAI提案を生成し、保存しました");
     } catch (error: any) {
       console.error("生成エラー:", error);
       showToast("エラー: " + (error.message || "資料の生成に失敗しました"));
     } finally {
       setIsGenerating(false);
-      markEditing();
     }
   }
 
@@ -915,13 +933,24 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
       const formatted = await formatTranscriptAction(originalTranscript);
       setAiTranscript(formatted);
       setTranscriptTab("ai");
-      showToast("原文からAI整形版を生成しました");
+      liveStateRef.current.aiTranscript = formatted;
+
+      const bundle = createMeetingBundle("準備中");
+      saveLocalBundle(bundle);
+      try {
+        const result = await saveMeetingBundleAction(bundle);
+        setLastSavedAt(result.updatedAt);
+        setSaveState("Neonに保存済み");
+      } catch {
+        setSaveState("ローカルに保存済み");
+      }
+
+      showToast("原文からAI整形版を生成し、保存しました");
     } catch (error: any) {
       console.error("整形エラー:", error);
       showToast("エラー: " + (error.message || "AI整形の生成に失敗しました"));
     } finally {
       setIsGenerating(false);
-      markEditing();
     }
   }
 
@@ -929,20 +958,33 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
     setIsGenerating(true);
     setSaveState("AIが整形中…");
     
-    const transcriptText = transcriptTab === "ai" ? aiTranscript : originalTranscript;
-    const agendaLines = agenda.map((item) => `・${item.name}の議題\n  - ${item.detail}`).join("\n");
+    const transcriptText = transcriptTab === "ai" ? liveStateRef.current.aiTranscript : liveStateRef.current.originalTranscript;
+    const agendaLines = liveStateRef.current.agenda.map((item) => `・${item.name}の議題\n  - ${item.detail}`).join("\n");
     
     try {
       const generatedDraft = await generateMinutesAction(transcriptText, agendaLines);
       setAiDraft(generatedDraft);
       setFinalMinutes(generatedDraft);
-      showToast("AIで議事録を生成し、最終議事録へ反映しました");
+      setPreviewTab("minutes");
+      liveStateRef.current.aiDraft = generatedDraft;
+      liveStateRef.current.finalMinutes = generatedDraft;
+
+      const bundle = createMeetingBundle("準備中");
+      saveLocalBundle(bundle);
+      try {
+        const result = await saveMeetingBundleAction(bundle);
+        setLastSavedAt(result.updatedAt);
+        setSaveState("Neonに保存済み");
+      } catch {
+        setSaveState("ローカルに保存済み");
+      }
+
+      showToast("AIで議事録を生成し、保存しました");
     } catch (error: any) {
       console.error("生成エラー:", error);
       showToast("エラー: " + (error.message || "議事録の生成に失敗しました"));
     } finally {
       setIsGenerating(false);
-      markEditing();
     }
   }
 
@@ -1415,7 +1457,147 @@ function loadLocalBundle(meetingId: string): MeetingBundle | null {
                         className="save-item-button"
                         type="button"
                         disabled={savingAgendaId === item.id}
-                        onClick={() => saveAgendaItem(item)}
+                        onClick={() => saveAgendaItem(item.id)}
+                      >
+                        {savingAgendaId === item.id ? "保存中…" : "保存"}
+                      </button>
+                    </article>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section className="workspace-section transcript-section" id="transcript" inert={isMeetingComplete ? true : undefined}>
+              <div className="section-heading">
+                <div>
+                  <span className="section-index">02</span>
+                  <div><h2>トランスクリプト</h2><p>会議中の発言をAIが読みやすく整形します</p></div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                  <button className="text-button" type="button" onClick={generateFormattedTranscript} disabled={isGenerating}>
+                    {isGenerating ? "⏳ 整形中..." : "↻ AIで整形版を生成"}
+                  </button>
+                  <span className="ai-badge">AI アシスト</span>
+                </div>
+              </div>
+
+              <div className="transcript-card">
+                <div className="segmented-control" role="tablist" aria-label="トランスクリプト表示">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={transcriptTab === "ai"}
+                    className={transcriptTab === "ai" ? "is-active" : ""}
+                    onClick={() => setTranscriptTab("ai")}
+                  >
+                    ✦ AI整形版
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={transcriptTab === "original"}
+                    className={transcriptTab === "original" ? "is-active" : ""}
+                    onClick={() => setTranscriptTab("original")}
+                  >
+                    原文
+                  </button>
+                </div>
+                <div className="transcript-label">
+                  <span>{transcriptTab === "ai" ? "話者と要点を整理済み" : "音声認識の原文"}</span>
+                  <span>{transcriptTab === "ai" ? aiTranscript.length : originalTranscript.length}文字</span>
+                </div>
+                <textarea
+                  className="transcript-editor"
+                  aria-label="トランスクリプト"
+                  value={transcriptTab === "ai" ? aiTranscript : originalTranscript}
+                  onChange={(event) => {
+                    const val = event.target.value;
+                    if (transcriptTab === "ai") {
+                      setAiTranscript(val);
+                      liveStateRef.current.aiTranscript = val;
+                    } else {
+                      setOriginalTranscript(val);
+                      liveStateRef.current.originalTranscript = val;
+                    }
+                    markEditing();
+                  }}
+                />
+                <div className="card-actions">
+                  <span>最終更新 {formatSavedTime(lastSavedAt)}</span>
+                  <button className="primary-small-button" type="button" disabled={isTranscriptSaving} onClick={saveTranscript}>
+                    {isTranscriptSaving ? "保存中…" : "保存する"}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="workspace-section minutes-section" id="minutes" inert={isMeetingComplete ? true : undefined}>
+              <div className="section-heading">
+                <div>
+                  <span className="section-index">03</span>
+                  <div><h2>議事録作成</h2><p>トランスクリプトをもとに要約とアクションを整理します</p></div>
+                </div>
+                <span className="ai-badge">AI 自動生成</span>
+              </div>
+
+              <div className="minutes-workspace">
+                <div className="minutes-column">
+                  <div className="field-heading">
+                    <span><strong>AI下書き</strong></span>
+                    <button className="text-button" type="button" onClick={regenerateMinutes} disabled={isGenerating}>
+                      {isGenerating ? "⏳ 生成中..." : "↻ AIで議事録を生成"}
+                    </button>
+                  </div>
+                  <textarea
+                    className="minutes-editor draft-editor"
+                    aria-label="AI下書き"
+                    readOnly
+                    value={aiDraft}
+                  />
+                </div>
+
+                <div className="flow-arrow" aria-hidden="true">→</div>
+
+                <div className="minutes-column">
+                  <div className="field-heading">
+                    <span><strong>最終議事録</strong><small className="edited-badge">担当者が編集</small></span>
+                    <button className="text-button" type="button" onClick={copyMinutes}>コピー</button>
+                  </div>
+                  <textarea
+                    className="minutes-editor final-editor"
+                    aria-label="最終議事録"
+                    value={finalMinutes}
+                    onChange={(event) => {
+                      const val = event.target.value;
+                      setFinalMinutes(val);
+                      liveStateRef.current.finalMinutes = val;
+                      markEditing();
+                    }}
+                  />ptyAgenda())}>
+                      標準担当者の入力欄を表示する
+                    </button>
+                  </div>
+                ) : (
+                  agenda.map((item) => (
+                    <article className="agenda-card" key={item.id} id={item.id}>
+                      <div className="agenda-owner">
+                        <span className="owner-avatar">{item.initials}</span>
+                        <span><small>{item.department}</small><strong>{item.name}</strong></span>
+                      </div>
+                      <div className="agenda-fields">
+                        <textarea
+                          aria-label={item.department + "の共有内容"}
+                          placeholder="共有する内容と確認したいことを入力してください"
+                          value={item.detail}
+                          onChange={(event) => updateAgenda(item.id, "detail", event.target.value)}
+                        />
+                        <div className="agenda-meta"><span>提出期限　{item.due}</span><span>担当者に共有済み</span></div>
+                      </div>
+                      <button
+                        className="save-item-button"
+                        type="button"
+                        disabled={savingAgendaId === item.id}
+                        onClick={() => saveAgendaItem(item.id)}
                       >
                         {savingAgendaId === item.id ? "保存中…" : "保存"}
                       </button>
