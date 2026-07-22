@@ -474,12 +474,20 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
 
   function markEditing() {
     setSaveState("保存中…");
-    setLastSavedAt("");
     setMeetings((current) => current.map((meeting) => meeting.id === selectedMeetingId
       ? { ...meeting, status: "準備中" }
       : meeting));
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => setSaveState("自動保存済み"), 700);
+    saveTimer.current = window.setTimeout(async () => {
+      try {
+        const result = await saveMeetingBundleAction(createMeetingBundle("準備中"));
+        setLastSavedAt(result.updatedAt);
+        setSaveState("Neonに自動保存済み");
+      } catch (error) {
+        console.error("Auto-save to Neon failed:", error);
+        setSaveState("保存エラー");
+      }
+    }, 1200);
   }
 
   function showToast(message: string) {
