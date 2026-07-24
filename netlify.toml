@@ -6,6 +6,30 @@
   NETLIFY_NEXT_PLUGIN_SKIP = "true"
 
 [[redirects]]
+  from = "/upstream/overall/*"
+  to = "https://overall-project-schedule-48.netlify.app/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/upstream/progress/*"
+  to = "https://progress-dashboard-48.netlify.app/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/upstream/earned-value/*"
+  to = "https://earned-value-dashboard-48.netlify.app/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/upstream/outsourcing/*"
+  to = "https://outsourcing-management-combined.netlify.app/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

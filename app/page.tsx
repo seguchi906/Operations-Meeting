@@ -5,6 +5,7 @@ import { PanelRightClose, PanelRightOpen, Trash2 } from "lucide-react";
 import { deleteMeetingBundleAction, generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
 import { generateMeetingMaterialClient, generateMinutesClient, formatTranscriptClient } from "./gemini-client";
 import { deleteMeetingBundleClient, saveMeetingBundleClient, loadMeetingBundleClient, listStoredMeetingsClient } from "./neon-client";
+import { buildProgressRiskReport, fetchLowRemainingBudgets, fetchOverdueIncompleteProjects, fetchOverdueOutsourcingContracts } from "./progress-risk";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
 import type { MeetingBundle } from "./meeting-types";
 
@@ -769,7 +770,11 @@ async function deleteBundleUnified(meetingId: string) {
     setIsRiskLoading(true);
     setRiskReportError("");
     try {
-      setRiskReport(await getProgressRiskReportAction());
+      try {
+        setRiskReport(await getProgressRiskReportAction());
+      } catch {
+        setRiskReport(await buildProgressRiskReport());
+      }
       markEditing();
     } catch (error: any) {
       setRiskReportError(error?.message || "進捗リスクを取得できませんでした。");
@@ -782,7 +787,11 @@ async function deleteBundleUnified(meetingId: string) {
     setIsBudgetLoading(true);
     setBudgetError("");
     try {
-      setLowBudgetItems(await getLowRemainingBudgetsAction());
+      try {
+        setLowBudgetItems(await getLowRemainingBudgetsAction());
+      } catch {
+        setLowBudgetItems(await fetchLowRemainingBudgets());
+      }
       markEditing();
     } catch (error: any) {
       setBudgetError(error?.message || "残り予算を取得できませんでした。");
@@ -795,7 +804,11 @@ async function deleteBundleUnified(meetingId: string) {
     setIsOutsourcingLoading(true);
     setOutsourcingError("");
     try {
-      setOverdueOutsourcingItems(await getOverdueOutsourcingContractsAction());
+      try {
+        setOverdueOutsourcingItems(await getOverdueOutsourcingContractsAction());
+      } catch {
+        setOverdueOutsourcingItems(await fetchOverdueOutsourcingContracts());
+      }
       markEditing();
     } catch (error: any) {
       setOutsourcingError(error?.message || "外注契約を取得できませんでした。");
@@ -808,7 +821,11 @@ async function deleteBundleUnified(meetingId: string) {
     setIsOverdueIncompleteLoading(true);
     setOverdueIncompleteError("");
     try {
-      setOverdueIncompleteItems(await getOverdueIncompleteProjectsAction());
+      try {
+        setOverdueIncompleteItems(await getOverdueIncompleteProjectsAction());
+      } catch {
+        setOverdueIncompleteItems(await fetchOverdueIncompleteProjects());
+      }
       markEditing();
     } catch (error: any) {
       setOverdueIncompleteError(error?.message || "期限超過業務を取得できませんでした。");

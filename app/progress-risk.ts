@@ -1,10 +1,11 @@
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskItem, ProgressRiskReport, RiskLevel } from "./risk-types";
 
 const SECTIONS = ["1課", "2課", "3課"];
-const OVERALL_PROJECT_SCHEDULE_URL = "https://overall-project-schedule-48.netlify.app";
-const PROGRESS_DASHBOARD_URL = "https://progress-dashboard-48.netlify.app";
-const EARNED_VALUE_DASHBOARD_URL = "https://earned-value-dashboard-48.netlify.app";
-const OUTSOURCING_MANAGEMENT_URL = "https://outsourcing-management-combined.netlify.app";
+const isBrowser = typeof window !== "undefined";
+const OVERALL_PROJECT_SCHEDULE_URL = isBrowser ? "/upstream/overall" : "https://overall-project-schedule-48.netlify.app";
+const PROGRESS_DASHBOARD_URL = isBrowser ? "/upstream/progress" : "https://progress-dashboard-48.netlify.app";
+const EARNED_VALUE_DASHBOARD_URL = isBrowser ? "/upstream/earned-value" : "https://earned-value-dashboard-48.netlify.app";
+const OUTSOURCING_MANAGEMENT_URL = isBrowser ? "/upstream/outsourcing" : "https://outsourcing-management-combined.netlify.app";
 
 function clampProgress(value: unknown) {
   const number = Number(value);
