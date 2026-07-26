@@ -7,25 +7,25 @@
 
 [[redirects]]
   from = "/upstream/overall/*"
-  to = "https://overall-project-schedule-48.netlify.app/api/:splat"
+  to = "https://overall-project-schedule-48.netlify.app/:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/upstream/progress/*"
-  to = "https://progress-dashboard-48.netlify.app/api/:splat"
+  to = "https://progress-dashboard-48.netlify.app/:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/upstream/earned-value/*"
-  to = "https://earned-value-dashboard-48.netlify.app/api/:splat"
+  to = "https://earned-value-dashboard-48.netlify.app/:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/upstream/outsourcing/*"
-  to = "https://outsourcing-management-combined.netlify.app/api/:splat"
+  to = "https://outsourcing-management-combined.netlify.app/:splat"
   status = 200
   force = true
 
