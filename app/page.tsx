@@ -100,7 +100,13 @@ function parseMeetingMaterial(md: string): MeetingSection[] {
   return sections;
 }
 
-function MeetingMaterialView({ markdown }: { markdown: string }) {
+function MeetingMaterialView({ markdown, agenda, onDecisionChange, onDecisionStatus, processingDecisions }: {
+  markdown: string;
+  agenda: AgendaItem[];
+  onDecisionChange: (itemId: string, issueId: string, value: string) => void;
+  onDecisionStatus: (itemId: string, issueId: string, status: "未決定" | "決定済") => void;
+  processingDecisions: Record<string, "未決定" | "決定済">;
+}) {
   const sections = parseMeetingMaterial(markdown);
   if (sections.length === 0) {
     return <div className="preview-minutes-doc">{markdown}</div>;
@@ -124,13 +130,39 @@ function MeetingMaterialView({ markdown }: { markdown: string }) {
                       <span className="mat-card-sub">{entry.subcategory}</span>
                     </div>
                     <p className="mat-card-content">{item.content}</p>
-                    {item.decisionSupports.map((support, supportIndex) => (
-                      <dl className="mat-decision-support" key={supportIndex}>
+                    {item.decisionSupports.map((support, supportIndex) => {
+                      const agendaItem = agenda.find((candidate) => candidate.name === item.writer)
+                        ?? agenda.find((candidate) => candidate.detail.trim() === item.content.trim());
+                      const issue = agendaItem ? getDecisionIssues(agendaItem).filter((candidate) => candidate.reviewStatus !== "判断しない")[supportIndex] : undefined;
+                      const processingKey = agendaItem && issue ? `${agendaItem.id}:${issue.id}` : "";
+                      return <div className="mat-decision-group" key={supportIndex}>
+                      <dl className="mat-decision-support">
                         {(["問題", "課長の判断", "判断理由", "会議で確認したいこと"] as const).map((label) => support[label] ? (
                           <div key={label}><dt>{label}</dt><dd>{support[label]}</dd></div>
                         ) : null)}
                       </dl>
-                    ))}
+                      {agendaItem && issue && (
+                        <div className="meeting-decision-editor">
+                          <label>
+                            <span>会議での判断</span>
+                            <textarea
+                              value={issue.meetingDecision ?? ""}
+                              placeholder="会議で決まった方針・担当・期限を入力"
+                              onChange={(event) => onDecisionChange(agendaItem.id, issue.id, event.target.value)}
+                            />
+                          </label>
+                          <div className="meeting-decision-actions">
+                            <button type="button" className={`meeting-decided-button${issue.meetingDecisionStatus === "決定済" ? " is-active" : ""}`} disabled={Boolean(processingDecisions[processingKey]) || !issue.meetingDecision?.trim()} onClick={() => onDecisionStatus(agendaItem.id, issue.id, "決定済")}>
+                              {processingDecisions[processingKey] === "決定済" ? "保存中…" : issue.meetingDecisionStatus === "決定済" ? "✓ 決定済" : "決定済"}
+                            </button>
+                            <button type="button" className={`meeting-undecided-button${issue.meetingDecisionStatus === "未決定" ? " is-active" : ""}`} disabled={Boolean(processingDecisions[processingKey])} onClick={() => onDecisionStatus(agendaItem.id, issue.id, "未決定")}>
+                              {processingDecisions[processingKey] === "未決定" ? "保存中…" : issue.meetingDecisionStatus === "未決定" ? "✓ 未決定" : "未決定"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      </div>;
+                    })}
                     {item.writer && (
                       <div className="mat-card-meta">
                         <span className="mat-card-writer">👤 記入者：{item.writer}</span>
@@ -402,11 +434,13 @@ export default function Home() {
   const [isBundleLoading, setIsBundleLoading] = useState(false);
   const [analyzingAgendaId, setAnalyzingAgendaId] = useState<string | null>(null);
   const [processingIssues, setProcessingIssues] = useState<Record<string, "confirm" | "skip">>({});
+  const [processingDecisions, setProcessingDecisions] = useState<Record<string, "未決定" | "決定済">>({});
   const [completionTrend, setCompletionTrend] = useState<DecisionCompletionTrend[]>([]);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCarryover = useRef<{ meetingId: string; agenda: AgendaItem[]; material: string } | null>(null);
 
   const selectedMeeting = useMemo(
     () => meetings.find((meeting) => meeting.id === selectedMeetingId) ?? meetings[0],
@@ -568,6 +602,11 @@ async function deleteBundleUnified(meetingId: string) {
         if (!cancelled) {
           if (bundle) {
             applyMeetingBundle(bundle);
+          } else if (pendingCarryover.current?.meetingId === selectedMeetingId) {
+            const carryover = pendingCarryover.current;
+            setAgenda(carryover.agenda);
+            setAgendaDocument(carryover.material);
+            pendingCarryover.current = null;
           } else {
             resetToEmptyMeeting();
           }
@@ -1091,14 +1130,86 @@ async function deleteBundleUnified(meetingId: string) {
     }
   }
 
+  function updateMeetingDecision(itemId: string, issueId: string, value: string) {
+    const updated = liveStateRef.current.agenda.map((item) => item.id !== itemId ? item : {
+      ...item,
+      decisionIssues: getDecisionIssues(item).map((issue) => issue.id === issueId
+        ? { ...issue, meetingDecision: value, meetingDecisionStatus: undefined, decidedAt: undefined }
+        : issue),
+    });
+    setAgenda(updated);
+    liveStateRef.current.agenda = updated;
+    markEditing();
+  }
+
+  async function setMeetingDecisionStatus(itemId: string, issueId: string, status: "未決定" | "決定済") {
+    const key = `${itemId}:${issueId}`;
+    if (processingDecisions[key]) return;
+    const before = liveStateRef.current.agenda;
+    setProcessingDecisions((current) => ({ ...current, [key]: status }));
+    const updated = before.map((item) => item.id !== itemId ? item : {
+      ...item,
+      decisionIssues: getDecisionIssues(item).map((issue) => issue.id === issueId ? {
+        ...issue,
+        meetingDecisionStatus: status,
+        decidedAt: status === "決定済" ? new Date().toISOString() : undefined,
+      } : issue),
+    });
+    setAgenda(updated);
+    liveStateRef.current.agenda = updated;
+    try {
+      const result = await saveBundleUnified(createMeetingBundle("準備中"));
+      setLastSavedAt(result.updatedAt);
+      setSaveState("Neonに保存済み");
+      showToast(status === "決定済" ? "会議での判断を決定済みとして保存しました" : "未決定事項として次回会議への引継ぎ対象にしました");
+    } catch (error) {
+      setAgenda(before);
+      liveStateRef.current.agenda = before;
+      setSaveState("保存エラー");
+      showToast(error instanceof Error ? error.message : "会議での判断を保存できませんでした");
+    } finally {
+      setProcessingDecisions((current) => { const next = { ...current }; delete next[key]; return next; });
+    }
+  }
+
+  function createCarryoverAgenda() {
+    return createDefaultEmptyAgenda().map((emptyItem) => {
+      const sourceItems = liveStateRef.current.agenda.filter((item) => item.name === emptyItem.name);
+      const carriedIssues = sourceItems.flatMap((item) => getDecisionIssues(item)
+        .filter((issue) => issue.meetingDecisionStatus === "未決定")
+        .map((issue) => ({ ...issue, id: `${issue.id}-carry-${Date.now()}`, meetingDecisionStatus: "未決定" as const, decidedAt: undefined })));
+      if (!carriedIssues.length) return emptyItem;
+      return {
+        ...emptyItem,
+        detail: sourceItems.filter((item) => getDecisionIssues(item).some((issue) => issue.meetingDecisionStatus === "未決定")).map((item) => item.detail).filter(Boolean).join("\n"),
+        decisionIssues: carriedIssues,
+        reviewStatus: "本人確認済み" as const,
+        decisionSupportVersion: 2 as const,
+      };
+    });
+  }
+
+  function createCarryoverMaterial(items: AgendaItem[]) {
+    const blocks = items.filter((item) => item.decisionIssues?.length).map((item) => {
+      const issues = getDecisionIssues(item).map((issue) => `- 問題：${issue.problem}\n- 課長の判断：${issue.decision}\n- 判断理由：${issue.rationale}\n- 会議で確認したいこと：${issue.meetingRequest}`).join("\n");
+      return `### 引継ぎ事項\n- ${item.detail || "前回会議からの未決定事項"}（記入者：${item.name}）\n${issues}`;
+    });
+    return blocks.length ? `## 前回会議からの未決定事項\n${blocks.join("\n\n")}` : "";
+  }
+
   function addNextMeeting() {
+    const carriedAgenda = createCarryoverAgenda();
+    const carriedMaterial = createCarryoverMaterial(carriedAgenda);
     const nextMeeting: Meeting = {
       id: "m-" + Date.now(),
       date: "",
       status: "準備中",
     };
+    pendingCarryover.current = { meetingId: nextMeeting.id, agenda: carriedAgenda, material: carriedMaterial };
     setMeetings((current) => [nextMeeting, ...current]);
     resetToEmptyMeeting();
+    setAgenda(carriedAgenda);
+    setAgendaDocument(carriedMaterial);
     setSelectedMeetingId(nextMeeting.id);
     setRecording(false);
     setRecordingSeconds(0);
@@ -1445,7 +1556,7 @@ async function deleteBundleUnified(meetingId: string) {
             <section className="preview-tab-panel" role="tabpanel">
               <div className="preview-section-heading"><span>会議資料</span></div>
               {agendaDocument.trim() ? (
-                <MeetingMaterialView markdown={agendaDocument} />
+                <MeetingMaterialView markdown={agendaDocument} agenda={agenda} onDecisionChange={updateMeetingDecision} onDecisionStatus={setMeetingDecisionStatus} processingDecisions={processingDecisions} />
               ) : (
                 <div className="preview-empty"><span className="preview-empty-icon">📋</span><span>会議資料はまだ作成されていません</span></div>
               )}

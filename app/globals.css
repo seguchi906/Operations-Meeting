@@ -2156,3 +2156,16 @@ button {
 .confirm-item-button.is-complete,.confirm-item-button.is-complete:disabled{border-color:#2f855a;background:#bfe8ce;color:#175c36;opacity:1;cursor:default}
 .no-decision-button.is-active{border-color:#b94343;background:#efbebe;color:#7d2424}
 .decision-issue-heading button:disabled{opacity:.58;cursor:not-allowed}
+.mat-decision-group{border-top:1px solid #d8e2ed}
+.mat-decision-group .mat-decision-support{border-top:0}
+.meeting-decision-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end;padding:12px 14px;background:#f8fbfd}
+.meeting-decision-editor label{display:grid;gap:6px;color:#24445f;font-size:13px;font-weight:700}
+.meeting-decision-editor textarea{width:100%;min-height:64px;resize:vertical;border:1px solid #cbd8e5;border-radius:7px;background:#fff;padding:9px 10px;color:#172b3d;font:inherit;font-weight:400}
+.meeting-decision-actions{display:flex;gap:8px;padding-bottom:1px}
+.meeting-decision-actions button{border-radius:7px;padding:9px 12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.meeting-decided-button{border:1px solid #65a87d;background:#eef9f2;color:#287348}
+.meeting-decided-button.is-active{background:#bfe8ce;color:#175c36;border-color:#2f855a}
+.meeting-undecided-button{border:1px solid #dc8b8b;background:#fff0f0;color:#a33f3f}
+.meeting-undecided-button.is-active{background:#efbebe;color:#7d2424;border-color:#b94343}
+.meeting-decision-actions button:disabled{opacity:.58;cursor:not-allowed}
+@media (max-width:760px){.meeting-decision-editor{grid-template-columns:1fr}.meeting-decision-actions{justify-content:flex-end}}

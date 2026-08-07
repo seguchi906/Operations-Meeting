@@ -26,6 +26,9 @@ export type DecisionIssue = {
   meetingRequest: string;
   reviewStatus?: "AI確認待ち" | "情報不足" | "本人確認済み" | "判断しない";
   confirmedAt?: string;
+  meetingDecision?: string;
+  meetingDecisionStatus?: "未決定" | "決定済";
+  decidedAt?: string;
 };
 
 export type DecisionSupportDraft = {
