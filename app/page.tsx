@@ -1765,7 +1765,7 @@ async function deleteBundleUnified(meetingId: string) {
                                   type="button"
                                   disabled={Boolean(processingIssues[`${item.id}:${issue.id}`]) || issue.reviewStatus === "本人確認済み" || issue.reviewStatus === "判断しない" || decisionFields.some((field) => !issue[field].trim())}
                                   onClick={() => confirmDecisionIssue(item.id, issue.id)}
-                                >{processingIssues[`${item.id}:${issue.id}`] === "confirm" ? "保存中…" : issue.reviewStatus === "本人確認済み" ? "✓ 確認済み" : "✓ 本人確認"}</button>
+                                >{processingIssues[`${item.id}:${issue.id}`] === "confirm" ? "保存中…" : issue.reviewStatus === "本人確認済み" ? "✓ 確認済み" : "本人確認"}</button>
                                 <button
                                   className={`no-decision-button${issue.reviewStatus === "判断しない" ? " is-active" : ""}`}
                                   type="button"
