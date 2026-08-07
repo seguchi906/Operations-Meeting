@@ -10,7 +10,11 @@ import type { DecisionCompletionTrend, MeetingBundle, StoredAgendaItem } from ".
 // ─── 会議資料パーサー & レンダラー ─────────────────────────────────────
 type AgendaEntry = {
   subcategory: string;
-  items: { content: string; writer: string }[];
+  items: {
+    content: string;
+    writer: string;
+    decisionSupport: Partial<Record<"問題" | "課長の判断" | "判断理由" | "会議で確認したいこと", string>>;
+  }[];
 };
 
 type MeetingSection = {
@@ -81,7 +85,13 @@ function parseMeetingMaterial(md: string): MeetingSection[] {
       const writerMatch = text.match(/（記入者：([^）]+)）/);
       const writer = writerMatch ? writerMatch[1] : "";
       const content = text.replace(/（記入者：[^）]+）/, "").trim();
-      currentEntry.items.push({ content, writer });
+      const decisionLine = text.match(/^(問題|課長の判断|判断理由|会議で確認したいこと)[：:]\s*(.+)$/);
+      const previousItem = currentEntry.items[currentEntry.items.length - 1];
+      if (decisionLine && previousItem && !writer) {
+        previousItem.decisionSupport[decisionLine[1] as keyof typeof previousItem.decisionSupport] = decisionLine[2].trim();
+      } else {
+        currentEntry.items.push({ content, writer, decisionSupport: {} });
+      }
     }
   }
 
@@ -112,6 +122,16 @@ function MeetingMaterialView({ markdown }: { markdown: string }) {
                       <span className="mat-card-sub">{entry.subcategory}</span>
                     </div>
                     <p className="mat-card-content">{item.content}</p>
+                    {Object.keys(item.decisionSupport).length > 0 && (
+                      <dl className="mat-decision-support">
+                        {(["問題", "課長の判断", "判断理由", "会議で確認したいこと"] as const).map((label) => item.decisionSupport[label] ? (
+                          <div key={label}>
+                            <dt>{label}</dt>
+                            <dd>{item.decisionSupport[label]}</dd>
+                          </div>
+                        ) : null)}
+                      </dl>
+                    )}
                     {item.writer && (
                       <div className="mat-card-meta">
                         <span className="mat-card-writer">👤 記入者：{item.writer}</span>
