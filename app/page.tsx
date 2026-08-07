@@ -1906,7 +1906,7 @@ async function deleteBundleUnified(meetingId: string) {
                                   title={issue.reviewStatus === "判断しない" ? "クリックすると判断対象に戻します" : undefined}
                                   disabled={Boolean(processingIssues[`${item.id}:${issue.id}`])}
                                   onClick={() => toggleNoDecisionIssue(item.id, issue.id)}
-                                >{processingIssues[`${item.id}:${issue.id}`] === "skip" ? "保存中…" : issue.reviewStatus === "判断しない" ? "✓ 判断不要" : "判断しない"}</button>
+                                >{processingIssues[`${item.id}:${issue.id}`] === "skip" ? "保存中…" : issue.reviewStatus === "判断しない" ? "✓ 判断しない" : "判断しない"}</button>
                               </div>
                             </div>
                             <div className="decision-fields-grid">
