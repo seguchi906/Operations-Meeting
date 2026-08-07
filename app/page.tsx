@@ -955,7 +955,8 @@ async function deleteBundleUnified(meetingId: string) {
       showToast(draft.missingFields.length ? "AI案を入力しました。不足情報を確認してください" : "AI案を4項目に入力し、保存しました");
     } catch (error) {
       console.error("判断支援の整理に失敗しました:", error);
-      showToast("AI整理に失敗しました。元の報告は保存されています");
+      const message = error instanceof Error ? error.message : "";
+      showToast(message.includes("4項目を生成できませんでした") ? message : "AI整理に失敗しました。元の報告は保存されています");
     } finally {
       setAnalyzingAgendaId(null);
     }

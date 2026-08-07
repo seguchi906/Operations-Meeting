@@ -107,22 +107,54 @@ export async function analyzeDecisionSupportAction(input: {
   const prompt = fillPrompt(decisionSupportPromptTemplate, {
     AGENDA_ITEM_JSON: JSON.stringify(input, null, 2),
   });
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-    config: { responseMimeType: "application/json" },
-  });
-  const parsed = JSON.parse(response.text || "{}");
-  const allowed = new Set(["problem", "decision", "rationale", "meetingRequest"]);
-  return {
-    problem: String(parsed.problem || ""),
-    decision: String(parsed.decision || ""),
-    rationale: String(parsed.rationale || ""),
-    meetingRequest: String(parsed.meetingRequest || ""),
-    missingFields: Array.isArray(parsed.missingFields) ? parsed.missingFields.filter((field: string) => allowed.has(field)) : [],
-    questions: Array.isArray(parsed.questions) ? parsed.questions.map(String) : [],
-    evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String) : [],
+
+  const responseJsonSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["problem", "decision", "rationale", "meetingRequest", "missingFields", "questions", "evidence"],
+    properties: {
+      problem: { type: "string", minLength: 1 },
+      decision: { type: "string", minLength: 1 },
+      rationale: { type: "string", minLength: 1 },
+      meetingRequest: { type: "string", minLength: 1 },
+      missingFields: { type: "array", items: { type: "string" } },
+      questions: { type: "array", items: { type: "string" } },
+      evidence: { type: "array", items: { type: "string" } },
+    },
   };
+
+  async function generate(contents: string): Promise<DecisionSupportDraft | null> {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents,
+        config: { responseMimeType: "application/json", responseJsonSchema },
+      });
+      const parsed = JSON.parse(response.text || "{}");
+      const draft: DecisionSupportDraft = {
+        problem: String(parsed.problem || "").trim(),
+        decision: String(parsed.decision || "").trim(),
+        rationale: String(parsed.rationale || "").trim(),
+        meetingRequest: String(parsed.meetingRequest || "").trim(),
+        missingFields: [],
+        questions: Array.isArray(parsed.questions) ? parsed.questions.map(String) : [],
+        evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String) : [],
+      };
+      return [draft.problem, draft.decision, draft.rationale, draft.meetingRequest].every(Boolean) ? draft : null;
+    } catch (error) {
+      console.warn("Decision support response validation failed:", error);
+      return null;
+    }
+  }
+
+  const firstDraft = await generate(prompt);
+  if (firstDraft) return firstDraft;
+
+  const retryPrompt = `${prompt}\n\n## 再生成指示\n前回は4項目の一部が空欄でした。元の報告から最重要問題を1つ選び、problem、decision、rationale、meetingRequestを必ずすべて具体的な文章で埋めてください。decisionは本人が修正する前提のAI提案として作成してください。`;
+  const retryDraft = await generate(retryPrompt);
+  if (retryDraft) return retryDraft;
+
+  throw new Error("4項目を生成できませんでした。もう一度お試しください");
 }
 
 export async function generateMinutesAction(transcript: string, agenda: string): Promise<string> {
