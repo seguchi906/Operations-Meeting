@@ -1565,6 +1565,12 @@ button {
   line-height: 1.55;
 }
 
+.agenda-fields .decision-fields-grid textarea {
+  height: 54px;
+  min-height: 54px;
+  resize: vertical;
+}
+
 .agenda-meta {
   display: flex;
   justify-content: space-between;
