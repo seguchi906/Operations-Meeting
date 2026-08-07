@@ -5,7 +5,7 @@ import { PanelRightClose, PanelRightOpen, Trash2 } from "lucide-react";
 import { analyzeDecisionSupportAction, deleteMeetingBundleAction, generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getDecisionCompletionTrendAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
 import { buildProgressRiskReport, fetchLowRemainingBudgets, fetchOverdueIncompleteProjects, fetchOverdueOutsourcingContracts } from "./progress-risk";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
-import type { DecisionCompletionTrend, DecisionSupportDraft, MeetingBundle, StoredAgendaItem } from "./meeting-types";
+import type { DecisionCompletionTrend, MeetingBundle, StoredAgendaItem } from "./meeting-types";
 
 // ─── 会議資料パーサー & レンダラー ─────────────────────────────────────
 type AgendaEntry = {
@@ -365,7 +365,6 @@ export default function Home() {
   const [savingBusinessStatus, setSavingBusinessStatus] = useState<"budget" | "outsourcing" | "incomplete" | "risk" | null>(null);
   const [isBundleLoading, setIsBundleLoading] = useState(false);
   const [analyzingAgendaId, setAnalyzingAgendaId] = useState<string | null>(null);
-  const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionSupportDraft>>({});
   const [completionTrend, setCompletionTrend] = useState<DecisionCompletionTrend[]>([]);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState("");
@@ -937,18 +936,23 @@ async function deleteBundleUnified(meetingId: string) {
         rationale: item.rationale,
         meetingRequest: item.meetingRequest,
       });
-      setDecisionDrafts((current) => ({ ...current, [item.id]: draft }));
-      setAgenda((current) => {
-        const updated = current.map((entry) => entry.id === item.id ? {
+      const updated = liveStateRef.current.agenda.map((entry) => entry.id === item.id ? {
           ...entry,
-          reviewStatus: draft.missingFields.length ? "情報不足" as const : "AI確認待ち" as const,
+          problem: draft.problem,
+          decision: draft.decision,
+          rationale: draft.rationale,
+          meetingRequest: draft.meetingRequest,
+          reviewStatus: draft.missingFields.length || [draft.problem, draft.decision, draft.rationale, draft.meetingRequest].some((value) => !value.trim()) ? "情報不足" as const : "AI確認待ち" as const,
           aiQuestions: draft.questions,
           decisionSupportVersion: 1 as const,
+          confirmedAt: undefined,
         } : entry);
-        liveStateRef.current.agenda = updated;
-        return updated;
-      });
-      showToast(draft.missingFields.length ? "不足情報を確認してください" : "AI案を確認してください");
+      setAgenda(updated);
+      liveStateRef.current.agenda = updated;
+      const result = await saveBundleUnified(createMeetingBundle("準備中"));
+      setLastSavedAt(result.updatedAt);
+      setSaveState("Neonに保存済み");
+      showToast(draft.missingFields.length ? "AI案を入力しました。不足情報を確認してください" : "AI案を4項目に入力し、保存しました");
     } catch (error) {
       console.error("判断支援の整理に失敗しました:", error);
       showToast("AI整理に失敗しました。元の報告は保存されています");
@@ -957,42 +961,6 @@ async function deleteBundleUnified(meetingId: string) {
     }
   }
 
-  function applyDecisionDraft(itemId: string) {
-    const draft = decisionDrafts[itemId];
-    if (!draft) return;
-    setAgenda((current) => {
-      const updated = current.map((item) => item.id === itemId ? {
-        ...item,
-        problem: draft.problem,
-        decision: draft.decision,
-        rationale: draft.rationale,
-        meetingRequest: draft.meetingRequest,
-        reviewStatus: draft.missingFields.length ? "情報不足" as const : "AI確認待ち" as const,
-        aiQuestions: draft.questions,
-        decisionSupportVersion: 1 as const,
-        confirmedAt: undefined,
-      } : item);
-      liveStateRef.current.agenda = updated;
-      return updated;
-    });
-    setDecisionDrafts((current) => {
-      const next = { ...current };
-      delete next[itemId];
-      return next;
-    });
-    markEditing();
-  }
-
-  function updateDecisionDraft(itemId: string, field: (typeof decisionFields)[number], value: string) {
-    setDecisionDrafts((current) => ({
-      ...current,
-      [itemId]: {
-        ...current[itemId],
-        [field]: value,
-        missingFields: current[itemId].missingFields.filter((missing) => missing !== field),
-      },
-    }));
-  }
 
   function confirmDecisionItem(itemId: string) {
     setAgenda((current) => {
@@ -1681,16 +1649,6 @@ async function deleteBundleUnified(meetingId: string) {
                         </div>
                         {item.aiQuestions && item.aiQuestions.length > 0 && (
                           <div className="decision-questions"><strong>確認が必要です</strong><ul>{item.aiQuestions.map((question) => <li key={question}>{question}</li>)}</ul></div>
-                        )}
-                        {decisionDrafts[item.id] && (
-                          <div className="decision-ai-draft">
-                            <div><strong>AIの整理案</strong><small>内容を修正してから反映できます</small></div>
-                            {decisionFields.map((field) => (
-                              <label key={field}><span>{decisionLabels[field]}</span><textarea value={decisionDrafts[item.id][field]} onChange={(event) => updateDecisionDraft(item.id, field, event.target.value)} /></label>
-                            ))}
-                            {decisionDrafts[item.id].evidence.length > 0 && <p><b>入力から確認できた根拠：</b>{decisionDrafts[item.id].evidence.join(" ／ ")}</p>}
-                            <div className="decision-draft-actions"><button type="button" onClick={() => setDecisionDrafts((current) => { const next = { ...current }; delete next[item.id]; return next; })}>破棄</button><button type="button" onClick={() => applyDecisionDraft(item.id)}>この内容で反映</button></div>
-                          </div>
                         )}
                         <div className="agenda-meta"><span>提出期限　{item.due}</span><span>担当者に共有済み</span></div>
                       </div>

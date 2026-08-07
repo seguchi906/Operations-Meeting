@@ -63,7 +63,9 @@ test("ships the decision-support workflow without browser database or AI clients
   assert.match(page, /今回の判断準備率/);
   assert.match(page, /判断情報が未完成の報告があります/);
   assert.match(actions, /decision-support|analyzeDecisionSupportAction/);
-  assert.match(prompt, /書かれていない判断、理由、事実を推測・創作しない/);
+  assert.match(prompt, /最も大きく、会議で優先して扱うべき問題を1つ選び/);
+  assert.match(prompt, /4項目をすべて埋める/);
+  assert.match(page, /AI案を4項目に入力し、保存しました/);
   assert.match(types, /problem\?: string/);
   assert.match(types, /decisionSupportVersion\?: 1/);
   await assert.rejects(access(new URL("../app/gemini-client.ts", import.meta.url)));
