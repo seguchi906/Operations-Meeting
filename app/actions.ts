@@ -76,12 +76,12 @@ export async function getDecisionCompletionTrendAction(): Promise<DecisionComple
   const bundles = await Promise.all(meetings.map((meeting) => loadMeetingBundle(meeting.id)));
   return bundles.flatMap((bundle) => {
     if (!bundle) return [];
-    const eligible = bundle.agendaItems.filter((item) => item.decisionSupportVersion && item.detail.trim() && item.reviewStatus !== "判断しない");
+    const eligible = bundle.agendaItems.filter((item) => item.decisionSupportVersion && item.detail.trim() && item.reviewStatus !== "判断しない" && (!item.decisionIssues?.length || item.decisionIssues.some((issue) => issue.reviewStatus !== "判断しない")));
     if (!eligible.length) return [];
     const completed = eligible.filter((item) =>
       item.reviewStatus === "本人確認済み" &&
       (item.decisionIssues?.length
-        ? item.decisionIssues.every((issue) => [issue.problem, issue.decision, issue.rationale, issue.meetingRequest].every((value) => value.trim()))
+        ? item.decisionIssues.filter((issue) => issue.reviewStatus !== "判断しない").every((issue) => issue.reviewStatus === "本人確認済み" && [issue.problem, issue.decision, issue.rationale, issue.meetingRequest].every((value) => value.trim()))
         : [item.problem, item.decision, item.rationale, item.meetingRequest].every((value) => value?.trim())),
     ).length;
     return [{
