@@ -2160,7 +2160,7 @@ button {
 .mat-decision-group .mat-decision-support{border-top:0}
 .meeting-decision-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end;padding:12px 14px;background:#f8fbfd}
 .meeting-decision-editor label{display:grid;gap:6px;color:#24445f;font-size:13px;font-weight:700}
-.meeting-decision-editor textarea{width:100%;min-height:64px;resize:vertical;border:1px solid #cbd8e5;border-radius:7px;background:#fff;padding:9px 10px;color:#172b3d;font:inherit;font-weight:400}
+.meeting-decision-editor textarea{width:100%;height:38px;min-height:38px;resize:vertical;border:1px solid #cbd8e5;border-radius:7px;background:#fff;padding:7px 10px;color:#172b3d;font:inherit;font-weight:400}
 .meeting-decision-actions{display:flex;gap:8px;padding-bottom:1px}
 .meeting-decision-actions button{border-radius:7px;padding:9px 12px;font-weight:700;cursor:pointer;white-space:nowrap}
 .meeting-decided-button{border:1px solid #65a87d;background:#eef9f2;color:#287348}
