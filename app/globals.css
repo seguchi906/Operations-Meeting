@@ -2135,3 +2135,9 @@ button {
   align-items: center;
   gap: 4px;
 }
+.status-判断しない{background:#edf1f5;color:#52606f}
+.decision-issue-editor{margin-top:14px;padding:14px;border:1px solid #dce4ee;border-radius:10px;background:#fbfcfe}
+.decision-issue-editor h3{margin:0 0 10px;color:#34495e;font-size:13px}
+.no-decision-note{margin:14px 0;padding:12px;border-radius:8px;background:#f3f5f7;color:#5d6976;font-size:13px}
+.no-decision-button{border:1px solid #788796;border-radius:7px;background:#fff;color:#52606f;padding:8px 10px;font-weight:700;cursor:pointer}
+.no-decision-button.is-active{background:#66717d;color:#fff}

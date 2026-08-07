@@ -76,11 +76,13 @@ export async function getDecisionCompletionTrendAction(): Promise<DecisionComple
   const bundles = await Promise.all(meetings.map((meeting) => loadMeetingBundle(meeting.id)));
   return bundles.flatMap((bundle) => {
     if (!bundle) return [];
-    const eligible = bundle.agendaItems.filter((item) => item.decisionSupportVersion === 1 && item.detail.trim());
+    const eligible = bundle.agendaItems.filter((item) => item.decisionSupportVersion && item.detail.trim() && item.reviewStatus !== "判断しない");
     if (!eligible.length) return [];
     const completed = eligible.filter((item) =>
       item.reviewStatus === "本人確認済み" &&
-      [item.problem, item.decision, item.rationale, item.meetingRequest].every((value) => value?.trim()),
+      (item.decisionIssues?.length
+        ? item.decisionIssues.every((issue) => [issue.problem, issue.decision, issue.rationale, issue.meetingRequest].every((value) => value.trim()))
+        : [item.problem, item.decision, item.rationale, item.meetingRequest].every((value) => value?.trim())),
     ).length;
     return [{
       meetingId: bundle.meetingId,
@@ -94,10 +96,7 @@ export async function getDecisionCompletionTrendAction(): Promise<DecisionComple
 
 export async function analyzeDecisionSupportAction(input: {
   detail: string;
-  problem?: string;
-  decision?: string;
-  rationale?: string;
-  meetingRequest?: string;
+  decisionIssues?: Array<{ id: string; problem: string; decision: string; rationale: string; meetingRequest: string }>;
 }): Promise<DecisionSupportDraft> {
   await assertAuthorizedAction();
   const apiKey = process.env.GEMINI_API_KEY;
@@ -111,12 +110,22 @@ export async function analyzeDecisionSupportAction(input: {
   const responseJsonSchema = {
     type: "object",
     additionalProperties: false,
-    required: ["problem", "decision", "rationale", "meetingRequest", "missingFields", "questions", "evidence"],
+    required: ["issues", "missingFields", "questions", "evidence"],
     properties: {
-      problem: { type: "string", minLength: 1 },
-      decision: { type: "string", minLength: 1 },
-      rationale: { type: "string", minLength: 1 },
-      meetingRequest: { type: "string", minLength: 1 },
+      issues: {
+        type: "array", minItems: 1,
+        items: {
+          type: "object", additionalProperties: false,
+          required: ["id", "problem", "decision", "rationale", "meetingRequest"],
+          properties: {
+            id: { type: "string", minLength: 1 },
+            problem: { type: "string", minLength: 1 },
+            decision: { type: "string", minLength: 1 },
+            rationale: { type: "string", minLength: 1 },
+            meetingRequest: { type: "string", minLength: 1 },
+          },
+        },
+      },
       missingFields: { type: "array", items: { type: "string" } },
       questions: { type: "array", items: { type: "string" } },
       evidence: { type: "array", items: { type: "string" } },
@@ -132,15 +141,20 @@ export async function analyzeDecisionSupportAction(input: {
       });
       const parsed = JSON.parse(response.text || "{}");
       const draft: DecisionSupportDraft = {
-        problem: String(parsed.problem || "").trim(),
-        decision: String(parsed.decision || "").trim(),
-        rationale: String(parsed.rationale || "").trim(),
-        meetingRequest: String(parsed.meetingRequest || "").trim(),
+        issues: Array.isArray(parsed.issues) ? parsed.issues.map((issue: any, index: number) => ({
+          id: String(issue.id || `issue-${index + 1}`),
+          problem: String(issue.problem || "").trim(),
+          decision: String(issue.decision || "").trim(),
+          rationale: String(issue.rationale || "").trim(),
+          meetingRequest: String(issue.meetingRequest || "").trim(),
+        })) : [],
         missingFields: [],
         questions: Array.isArray(parsed.questions) ? parsed.questions.map(String) : [],
         evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String) : [],
       };
-      return [draft.problem, draft.decision, draft.rationale, draft.meetingRequest].every(Boolean) ? draft : null;
+      return draft.issues.length > 0 && draft.issues.every((issue) =>
+        [issue.problem, issue.decision, issue.rationale, issue.meetingRequest].every(Boolean),
+      ) ? draft : null;
     } catch (error) {
       console.warn("Decision support response validation failed:", error);
       return null;
@@ -150,7 +164,7 @@ export async function analyzeDecisionSupportAction(input: {
   const firstDraft = await generate(prompt);
   if (firstDraft) return firstDraft;
 
-  const retryPrompt = `${prompt}\n\n## 再生成指示\n前回は4項目の一部が空欄でした。元の報告から最重要問題を1つ選び、problem、decision、rationale、meetingRequestを必ずすべて具体的な文章で埋めてください。decisionは本人が修正する前提のAI提案として作成してください。`;
+  const retryPrompt = `${prompt}\n\n## 再生成指示\n前回は問題の抽出または4項目の一部が不完全でした。元の報告に含まれるすべての問題をissuesへ分け、各問題のproblem、decision、rationale、meetingRequestを必ず具体的な文章で埋めてください。decisionは本人が修正する前提のAI提案として作成してください。`;
   const retryDraft = await generate(retryPrompt);
   if (retryDraft) return retryDraft;
 
@@ -226,11 +240,13 @@ function buildFallbackMeetingMaterial(agendaItems: Array<{
   rationale?: string;
   meetingRequest?: string;
   reviewStatus?: string;
+  decisionIssues?: Array<{ problem: string; decision: string; rationale: string; meetingRequest: string }>;
 }>) {
   const itemsText = agendaItems.map((item) => {
-    const decisionBlock = item.reviewStatus === "本人確認済み" &&
-      [item.problem, item.decision, item.rationale, item.meetingRequest].every((value) => value?.trim())
-      ? `\n- 問題：${item.problem}\n- 課長の判断：${item.decision}\n- 判断理由：${item.rationale}\n- 会議で確認したいこと：${item.meetingRequest}`
+    const issues = item.decisionIssues?.length ? item.decisionIssues : (item.problem ? [{ problem: item.problem, decision: item.decision || "", rationale: item.rationale || "", meetingRequest: item.meetingRequest || "" }] : []);
+    const decisionBlock = item.reviewStatus === "本人確認済み" && issues.every((issue) =>
+      [issue.problem, issue.decision, issue.rationale, issue.meetingRequest].every((value) => value.trim()))
+      ? issues.map((issue) => `\n- 問題：${issue.problem}\n- 課長の判断：${issue.decision}\n- 判断理由：${issue.rationale}\n- 会議で確認したいこと：${issue.meetingRequest}`).join("")
       : "";
     return `### ■ ${item.department}（担当: ${item.name}）\n${item.detail.trim() || "（共有内容なし）"}${decisionBlock}`;
   }).join("\n\n");
@@ -254,6 +270,7 @@ export async function generateMeetingMaterialAction(
     rationale?: string;
     meetingRequest?: string;
     reviewStatus?: string;
+    decisionIssues?: Array<{ problem: string; decision: string; rationale: string; meetingRequest: string }>;
   }>
 ): Promise<{ meetingMaterial: string; aiSuggestions: string }> {
   await assertAuthorizedAction();

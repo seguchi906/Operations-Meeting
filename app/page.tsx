@@ -13,7 +13,7 @@ type AgendaEntry = {
   items: {
     content: string;
     writer: string;
-    decisionSupport: Partial<Record<"問題" | "課長の判断" | "判断理由" | "会議で確認したいこと", string>>;
+    decisionSupports: Partial<Record<"問題" | "課長の判断" | "判断理由" | "会議で確認したいこと", string>>[];
   }[];
 };
 
@@ -88,9 +88,11 @@ function parseMeetingMaterial(md: string): MeetingSection[] {
       const decisionLine = text.match(/^(問題|課長の判断|判断理由|会議で確認したいこと)[：:]\s*(.+)$/);
       const previousItem = currentEntry.items[currentEntry.items.length - 1];
       if (decisionLine && previousItem && !writer) {
-        previousItem.decisionSupport[decisionLine[1] as keyof typeof previousItem.decisionSupport] = decisionLine[2].trim();
+        if (decisionLine[1] === "問題" || previousItem.decisionSupports.length === 0) previousItem.decisionSupports.push({});
+        const group = previousItem.decisionSupports[previousItem.decisionSupports.length - 1];
+        group[decisionLine[1] as keyof typeof group] = decisionLine[2].trim();
       } else {
-        currentEntry.items.push({ content, writer, decisionSupport: {} });
+        currentEntry.items.push({ content, writer, decisionSupports: [] });
       }
     }
   }
@@ -122,16 +124,13 @@ function MeetingMaterialView({ markdown }: { markdown: string }) {
                       <span className="mat-card-sub">{entry.subcategory}</span>
                     </div>
                     <p className="mat-card-content">{item.content}</p>
-                    {Object.keys(item.decisionSupport).length > 0 && (
-                      <dl className="mat-decision-support">
-                        {(["問題", "課長の判断", "判断理由", "会議で確認したいこと"] as const).map((label) => item.decisionSupport[label] ? (
-                          <div key={label}>
-                            <dt>{label}</dt>
-                            <dd>{item.decisionSupport[label]}</dd>
-                          </div>
+                    {item.decisionSupports.map((support, supportIndex) => (
+                      <dl className="mat-decision-support" key={supportIndex}>
+                        {(["問題", "課長の判断", "判断理由", "会議で確認したいこと"] as const).map((label) => support[label] ? (
+                          <div key={label}><dt>{label}</dt><dd>{support[label]}</dd></div>
                         ) : null)}
                       </dl>
-                    )}
+                    ))}
                     {item.writer && (
                       <div className="mat-card-meta">
                         <span className="mat-card-writer">👤 記入者：{item.writer}</span>
@@ -280,11 +279,22 @@ const decisionLabels: Record<(typeof decisionFields)[number], string> = {
 };
 
 function isDecisionComplete(item: AgendaItem) {
-  return item.reviewStatus === "本人確認済み" && decisionFields.every((field) => item[field]?.trim());
+  const issues = getDecisionIssues(item);
+  return item.reviewStatus === "本人確認済み" && issues.length > 0 && issues.every((issue) => decisionFields.every((field) => issue[field]?.trim()));
 }
 
 function missingDecisionLabels(item: AgendaItem) {
-  return decisionFields.filter((field) => !item[field]?.trim()).map((field) => decisionLabels[field]);
+  const issues = getDecisionIssues(item);
+  if (!issues.length) return ["問題"];
+  return issues.flatMap((issue, index) => decisionFields.filter((field) => !issue[field]?.trim()).map((field) => `問題${index + 1}の${decisionLabels[field]}`));
+}
+
+function getDecisionIssues(item: AgendaItem) {
+  if (item.decisionIssues?.length) return item.decisionIssues;
+  if ([item.problem, item.decision, item.rationale, item.meetingRequest].some((value) => value?.trim())) {
+    return [{ id: `${item.id}-legacy`, problem: item.problem || "", decision: item.decision || "", rationale: item.rationale || "", meetingRequest: item.meetingRequest || "" }];
+  }
+  return [];
 }
 
 const initialMeetings: Meeting[] = [
@@ -397,7 +407,7 @@ export default function Home() {
   );
   const isMeetingComplete = selectedMeeting.status === "確定済み";
   const decisionEligibleItems = useMemo(
-    () => agenda.filter((item) => item.decisionSupportVersion === 1 && item.detail.trim()),
+    () => agenda.filter((item) => item.decisionSupportVersion && item.detail.trim() && item.reviewStatus !== "判断しない"),
     [agenda],
   );
   const completedDecisionItems = useMemo(
@@ -681,7 +691,7 @@ async function deleteBundleUnified(meetingId: string) {
 
   async function saveCurrentMeetingBundle() {
     const incomplete = liveStateRef.current.agenda.filter((item) =>
-      item.decisionSupportVersion === 1 && item.detail.trim() && !isDecisionComplete(item),
+      item.decisionSupportVersion && item.detail.trim() && item.reviewStatus !== "判断しない" && !isDecisionComplete(item),
     );
     if (incomplete.length > 0) {
       const summary = incomplete.map((item) => `・${item.department} ${item.name}：${missingDecisionLabels(item).join("、") || "本人確認"}`).join("\n");
@@ -903,15 +913,30 @@ async function deleteBundleUnified(meetingId: string) {
     });
   }
 
-  function updateAgenda(id: string, field: "detail" | "problem" | "decision" | "rationale" | "meetingRequest", value: string) {
+  function updateAgenda(id: string, field: "detail", value: string) {
     setAgenda((current) => {
       const updated = current.map((item) => (item.id === id ? {
         ...item,
-        [field]: value,
-        decisionSupportVersion: 1 as const,
+        detail: value,
+        decisionSupportVersion: 2 as const,
         reviewStatus: item.reviewStatus === "本人確認済み" ? "AI確認待ち" as const : item.reviewStatus || "未整理" as const,
         confirmedAt: undefined,
       } : item));
+      liveStateRef.current.agenda = updated;
+      return updated;
+    });
+    markEditing();
+  }
+
+  function updateDecisionIssue(itemId: string, issueId: string, field: (typeof decisionFields)[number], value: string) {
+    setAgenda((current) => {
+      const updated = current.map((item) => item.id === itemId ? {
+        ...item,
+        decisionIssues: getDecisionIssues(item).map((issue) => issue.id === issueId ? { ...issue, [field]: value } : issue),
+        reviewStatus: item.reviewStatus === "本人確認済み" ? "AI確認待ち" as const : item.reviewStatus || "未整理" as const,
+        confirmedAt: undefined,
+        decisionSupportVersion: 2 as const,
+      } : item);
       liveStateRef.current.agenda = updated;
       return updated;
     });
@@ -935,7 +960,7 @@ async function deleteBundleUnified(meetingId: string) {
         meetingRequest: "",
         reviewStatus: "未整理",
         aiQuestions: [],
-        decisionSupportVersion: 1,
+        decisionSupportVersion: 2,
       },
     ]);
     setActiveNav("agenda");
@@ -951,20 +976,14 @@ async function deleteBundleUnified(meetingId: string) {
     try {
       const draft = await analyzeDecisionSupportAction({
         detail: item.detail,
-        problem: item.problem,
-        decision: item.decision,
-        rationale: item.rationale,
-        meetingRequest: item.meetingRequest,
+        decisionIssues: getDecisionIssues(item),
       });
       const updated = liveStateRef.current.agenda.map((entry) => entry.id === item.id ? {
           ...entry,
-          problem: draft.problem,
-          decision: draft.decision,
-          rationale: draft.rationale,
-          meetingRequest: draft.meetingRequest,
-          reviewStatus: draft.missingFields.length || [draft.problem, draft.decision, draft.rationale, draft.meetingRequest].some((value) => !value.trim()) ? "情報不足" as const : "AI確認待ち" as const,
+          decisionIssues: draft.issues,
+          reviewStatus: "AI確認待ち" as const,
           aiQuestions: draft.questions,
-          decisionSupportVersion: 1 as const,
+          decisionSupportVersion: 2 as const,
           confirmedAt: undefined,
         } : entry);
       setAgenda(updated);
@@ -972,7 +991,7 @@ async function deleteBundleUnified(meetingId: string) {
       const result = await saveBundleUnified(createMeetingBundle("準備中"));
       setLastSavedAt(result.updatedAt);
       setSaveState("Neonに保存済み");
-      showToast(draft.missingFields.length ? "AI案を入力しました。不足情報を確認してください" : "AI案を4項目に入力し、保存しました");
+      showToast(`${draft.issues.length}件の問題を4項目に整理し、保存しました`);
     } catch (error) {
       console.error("判断支援の整理に失敗しました:", error);
       const message = error instanceof Error ? error.message : "";
@@ -993,7 +1012,7 @@ async function deleteBundleUnified(meetingId: string) {
           reviewStatus: missing.length ? "情報不足" as const : "本人確認済み" as const,
           aiQuestions: missing.length ? missing.map((label) => `${label}を入力してください。`) : [],
           confirmedAt: missing.length ? undefined : new Date().toISOString(),
-          decisionSupportVersion: 1 as const,
+          decisionSupportVersion: 2 as const,
         };
       });
       liveStateRef.current.agenda = updated;
@@ -1001,6 +1020,21 @@ async function deleteBundleUnified(meetingId: string) {
     });
     markEditing();
     showToast("入力内容を本人確認済みにしました");
+  }
+
+  function toggleNoDecision(itemId: string) {
+    setAgenda((current) => {
+      const updated = current.map((item) => item.id === itemId ? {
+        ...item,
+        reviewStatus: item.reviewStatus === "判断しない" ? "未整理" as const : "判断しない" as const,
+        confirmedAt: undefined,
+        decisionSupportVersion: 2 as const,
+      } : item);
+      liveStateRef.current.agenda = updated;
+      return updated;
+    });
+    markEditing();
+    showToast("判断しない報告は完成率の集計対象外です");
   }
 
   function addNextMeeting() {
@@ -1069,6 +1103,7 @@ async function deleteBundleUnified(meetingId: string) {
         decision: item.decision,
         rationale: item.rationale,
         meetingRequest: item.meetingRequest,
+        decisionIssues: item.decisionIssues,
         reviewStatus: item.reviewStatus,
       }));
 
@@ -1646,7 +1681,7 @@ async function deleteBundleUnified(meetingId: string) {
                       <div className="agenda-fields">
                         <div className="decision-card-heading">
                           <span className={`decision-status status-${item.reviewStatus || "未整理"}`}>{item.reviewStatus || "未整理"}</span>
-                          {item.decisionSupportVersion !== 1 && <small>過去形式の報告</small>}
+                          {!item.decisionSupportVersion && <small>過去形式の報告</small>}
                         </div>
                         <label className="agenda-input-label">元の報告</label>
                         <textarea
@@ -1655,19 +1690,25 @@ async function deleteBundleUnified(meetingId: string) {
                           value={item.detail}
                           onChange={(event) => updateAgenda(item.id, "detail", event.target.value)}
                         />
-                        <div className="decision-fields-grid">
-                          {decisionFields.map((field) => (
-                            <label key={field}>
-                              <span>{decisionLabels[field]}</span>
-                              <textarea
-                                aria-label={`${item.department}の${decisionLabels[field]}`}
-                                placeholder={field === "problem" ? "何を問題と捉えていますか" : field === "decision" ? "課長としてどうしますか" : field === "rationale" ? "なぜ、その判断ですか" : "会議で何を確認・調整したいですか"}
-                                value={item[field] || ""}
-                                onChange={(event) => updateAgenda(item.id, field, event.target.value)}
-                              />
-                            </label>
-                          ))}
-                        </div>
+                        {item.reviewStatus !== "判断しない" && getDecisionIssues(item).map((issue, issueIndex) => (
+                          <section className="decision-issue-editor" key={issue.id}>
+                            <h3>問題 {issueIndex + 1}</h3>
+                            <div className="decision-fields-grid">
+                              {decisionFields.map((field) => (
+                                <label key={field}>
+                                  <span>{decisionLabels[field]}</span>
+                                  <textarea
+                                    aria-label={`${item.department}の問題${issueIndex + 1}の${decisionLabels[field]}`}
+                                    placeholder={field === "problem" ? "何を問題と捉えていますか" : field === "decision" ? "課長としてどうしますか" : field === "rationale" ? "なぜ、その判断ですか" : "会議で何を確認・調整したいですか"}
+                                    value={issue[field]}
+                                    onChange={(event) => updateDecisionIssue(item.id, issue.id, field, event.target.value)}
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </section>
+                        ))}
+                        {item.reviewStatus === "判断しない" && <p className="no-decision-note">この報告は判断事項の集計対象外です。元の報告は保存されています。</p>}
                         {item.aiQuestions && item.aiQuestions.length > 0 && (
                           <div className="decision-questions"><strong>確認が必要です</strong><ul>{item.aiQuestions.map((question) => <li key={question}>{question}</li>)}</ul></div>
                         )}
@@ -1675,7 +1716,8 @@ async function deleteBundleUnified(meetingId: string) {
                       </div>
                       <div className="agenda-action-stack">
                         <button className="ai-organize-button" type="button" disabled={analyzingAgendaId === item.id || !item.detail.trim()} onClick={() => analyzeAgendaItem(item)}>{analyzingAgendaId === item.id ? "AI整理中…" : "✦ AIで整理"}</button>
-                        <button className="confirm-item-button" type="button" disabled={missingDecisionLabels(item).length > 0} onClick={() => confirmDecisionItem(item.id)}>✓ 本人確認</button>
+                        <button className="confirm-item-button" type="button" disabled={item.reviewStatus === "判断しない" || missingDecisionLabels(item).length > 0} onClick={() => confirmDecisionItem(item.id)}>✓ 本人確認</button>
+                        <button className={`no-decision-button${item.reviewStatus === "判断しない" ? " is-active" : ""}`} type="button" onClick={() => toggleNoDecision(item.id)}>{item.reviewStatus === "判断しない" ? "判断対象に戻す" : "判断しない"}</button>
                         <button className="save-item-button" type="button" disabled={savingAgendaId === item.id} onClick={() => saveAgendaItem(item.id)}>{savingAgendaId === item.id ? "保存中…" : "保存"}</button>
                       </div>
                     </article>

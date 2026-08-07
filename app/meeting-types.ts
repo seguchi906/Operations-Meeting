@@ -11,17 +11,23 @@ export type StoredAgendaItem = {
   decision?: string;
   rationale?: string;
   meetingRequest?: string;
-  reviewStatus?: "未整理" | "AI確認待ち" | "情報不足" | "本人確認済み";
+  decisionIssues?: DecisionIssue[];
+  reviewStatus?: "未整理" | "AI確認待ち" | "情報不足" | "本人確認済み" | "判断しない";
   aiQuestions?: string[];
   confirmedAt?: string;
-  decisionSupportVersion?: 1;
+  decisionSupportVersion?: 1 | 2;
 };
 
-export type DecisionSupportDraft = {
+export type DecisionIssue = {
+  id: string;
   problem: string;
   decision: string;
   rationale: string;
   meetingRequest: string;
+};
+
+export type DecisionSupportDraft = {
+  issues: DecisionIssue[];
   missingFields: Array<"problem" | "decision" | "rationale" | "meetingRequest">;
   questions: string[];
   evidence: string[];

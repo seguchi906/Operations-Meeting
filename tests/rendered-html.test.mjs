@@ -66,13 +66,14 @@ test("ships the decision-support workflow without browser database or AI clients
   assert.match(actions, /responseJsonSchema/);
   assert.match(actions, /再生成指示/);
   assert.match(actions, /4項目を生成できませんでした/);
-  assert.match(prompt, /最も大きく、会議で優先して扱うべき問題を1つ選び/);
+  assert.match(prompt, /元の報告に含まれる問題をすべて抽出/);
   assert.match(prompt, /4項目をすべて埋める/);
-  assert.match(page, /AI案を4項目に入力し、保存しました/);
+  assert.match(page, /件の問題を4項目に整理し、保存しました/);
+  assert.match(page, /判断しない/);
   assert.match(page, /mat-decision-support/);
-  assert.match(page, /previousItem\.decisionSupport/);
+  assert.match(page, /previousItem\.decisionSupports/);
   assert.match(types, /problem\?: string/);
-  assert.match(types, /decisionSupportVersion\?: 1/);
+  assert.match(types, /decisionSupportVersion\?: 1 \| 2/);
   await assert.rejects(access(new URL("../app/gemini-client.ts", import.meta.url)));
   await assert.rejects(access(new URL("../app/neon-client.ts", import.meta.url)));
 });
