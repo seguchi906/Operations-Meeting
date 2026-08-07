@@ -1410,11 +1410,11 @@ button {
   box-shadow: 0 6px 22px rgba(38, 37, 34, 0.035);
 }
 
-.editor-work-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:0 0 18px;padding:5px;border:1px solid var(--border);border-radius:12px;background:#f2f5f8}
-.editor-work-tabs button{min-height:42px;border:0;border-radius:8px;background:transparent;color:var(--text-secondary);font:inherit;font-size:13px;font-weight:750;cursor:pointer}
-.editor-work-tabs button:hover{background:#fff;color:var(--primary)}
-.editor-work-tabs button.is-active{background:#fff;color:var(--primary);box-shadow:0 2px 8px rgba(38,37,34,.09)}
-@media(max-width:760px){.editor-work-tabs{grid-template-columns:1fr 1fr}}
+.editor-work-tabs{display:flex;align-items:flex-end;gap:2px;margin:0 0 18px;padding:8px 8px 0;overflow-x:auto;border-bottom:5px solid #fff;border-radius:12px 12px 0 0;background:#dbe7f8;scrollbar-width:thin}
+.editor-work-tabs button{position:relative;min-width:150px;min-height:40px;padding:0 18px;border:0;border-radius:12px 12px 0 0;background:#cbdcf4;color:#46566b;font:inherit;font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer;transition:background 140ms ease,color 140ms ease}
+.editor-work-tabs button:hover{background:#e8f0fb;color:#294d78}
+.editor-work-tabs button.is-active{z-index:1;background:#fff;color:#243449;box-shadow:0 -1px 0 rgba(71,94,123,.05)}
+@media(max-width:760px){.editor-work-tabs button{min-width:132px}}
 
 .section-heading {
   display: flex;
