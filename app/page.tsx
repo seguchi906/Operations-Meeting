@@ -1694,8 +1694,11 @@ async function deleteBundleUnified(meetingId: string) {
                     <article className="agenda-card" key={item.id} id={item.id}>
                       <div className="agenda-fields">
                         <div className="decision-card-heading">
-                          <span className={`decision-status status-${item.reviewStatus || "未整理"}`}>{item.reviewStatus || "未整理"}</span>
-                          {!item.decisionSupportVersion && <small>過去形式の報告</small>}
+                          <div>
+                            <span className={`decision-status status-${item.reviewStatus || "未整理"}`}>{item.reviewStatus || "未整理"}</span>
+                            {!item.decisionSupportVersion && <small>過去形式の報告</small>}
+                          </div>
+                          <button className="ai-organize-button" type="button" disabled={analyzingAgendaId === item.id || !item.detail.trim()} onClick={() => analyzeAgendaItem(item)}>{analyzingAgendaId === item.id ? "AI整理中…" : "✦ AIで整理"}</button>
                         </div>
                         <label className="agenda-input-label">元の報告</label>
                         <textarea
@@ -1729,7 +1732,6 @@ async function deleteBundleUnified(meetingId: string) {
                         <div className="agenda-meta"><span>提出期限　{item.due}</span><span>担当者に共有済み</span></div>
                       </div>
                       <div className="agenda-action-stack">
-                        <button className="ai-organize-button" type="button" disabled={analyzingAgendaId === item.id || !item.detail.trim()} onClick={() => analyzeAgendaItem(item)}>{analyzingAgendaId === item.id ? "AI整理中…" : "✦ AIで整理"}</button>
                         <button className="confirm-item-button" type="button" disabled={item.reviewStatus === "判断しない" || missingDecisionLabels(item).length > 0} onClick={() => confirmDecisionItem(item.id)}>✓ 本人確認</button>
                         <button className={`no-decision-button${item.reviewStatus === "判断しない" ? " is-active" : ""}`} type="button" onClick={() => toggleNoDecision(item.id)}>{item.reviewStatus === "判断しない" ? "判断対象に戻す" : "判断しない"}</button>
                         <button className="save-item-button" type="button" disabled={savingAgendaId === item.id} onClick={() => saveAgendaItem(item.id)}>{savingAgendaId === item.id ? "保存中…" : "保存"}</button>
