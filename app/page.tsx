@@ -389,7 +389,6 @@ export default function Home() {
   const [isEditorCollapsed, setIsEditorCollapsed] = useState(false);
   const [isBundleSaving, setIsBundleSaving] = useState(false);
   const [isResumingEditing, setIsResumingEditing] = useState(false);
-  const [savingAgendaId, setSavingAgendaId] = useState<string | null>(null);
   const [isTranscriptSaving, setIsTranscriptSaving] = useState(false);
   const [isMinutesDraftSaving, setIsMinutesDraftSaving] = useState(false);
   const [isMinutesConfirming, setIsMinutesConfirming] = useState(false);
@@ -733,25 +732,6 @@ async function deleteBundleUnified(meetingId: string) {
       showToast(error?.message || "編集を再開できませんでした");
     } finally {
       setIsResumingEditing(false);
-    }
-  }
-
-  async function saveAgendaItem(itemId: string) {
-    setSavingAgendaId(itemId);
-    setSaveState("保存中…");
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    const bundle = createMeetingBundle("準備中");
-    try {
-      const { updatedAt } = await saveBundleUnified(bundle);
-      setLastSavedAt(updatedAt);
-      setSaveState("Neonに保存済み");
-      const targetItem = liveStateRef.current.agenda.find((i) => i.id === itemId);
-      showToast((targetItem?.department || targetItem?.name || "議題") + "の共有内容を保存しました");
-    } catch (error: any) {
-      setSaveState("保存エラー");
-      showToast(error?.message || "議題の共有内容をデータベースに保存できませんでした");
-    } finally {
-      setSavingAgendaId(null);
     }
   }
 
@@ -1763,9 +1743,6 @@ async function deleteBundleUnified(meetingId: string) {
                           <div className="decision-questions"><strong>確認が必要です</strong><ul>{item.aiQuestions.map((question) => <li key={question}>{question}</li>)}</ul></div>
                         )}
                         <div className="agenda-meta"><span>提出期限　{item.due}</span><span>担当者に共有済み</span></div>
-                      </div>
-                      <div className="agenda-action-stack">
-                        <button className="save-item-button" type="button" disabled={savingAgendaId === item.id} onClick={() => saveAgendaItem(item.id)}>{savingAgendaId === item.id ? "保存中…" : "保存"}</button>
                       </div>
                     </article>
                   ))
