@@ -984,14 +984,26 @@ async function deleteBundleUnified(meetingId: string) {
         detail: item.detail,
         decisionIssues: getDecisionIssues(item),
       });
-      const updated = liveStateRef.current.agenda.map((entry) => entry.id === item.id ? {
+      const updated = liveStateRef.current.agenda.map((entry) => {
+        if (entry.id !== item.id) return entry;
+        const currentIssues = getDecisionIssues(entry);
+        const locked = currentIssues.filter((issue) => issue.reviewStatus === "本人確認済み" || issue.reviewStatus === "判断しない");
+        const lockedIds = new Set(locked.map((issue) => issue.id));
+        const lockedProblems = new Set(locked.map((issue) => issue.problem.trim()));
+        const regenerated = draft.issues
+          .filter((issue) => !lockedIds.has(issue.id) && !lockedProblems.has(issue.problem.trim()))
+          .map((issue) => ({ ...issue, reviewStatus: "AI確認待ち" as const }));
+        const decisionIssues = [...locked, ...regenerated];
+        const actionable = decisionIssues.filter((issue) => issue.reviewStatus !== "判断しない");
+        return {
           ...entry,
-          decisionIssues: draft.issues.map((issue) => ({ ...issue, reviewStatus: "AI確認待ち" as const })),
-          reviewStatus: "AI確認待ち" as const,
+          decisionIssues,
+          reviewStatus: actionable.length === 0 ? "判断しない" as const : actionable.every((issue) => issue.reviewStatus === "本人確認済み") ? "本人確認済み" as const : "AI確認待ち" as const,
           aiQuestions: draft.questions,
           decisionSupportVersion: 2 as const,
           confirmedAt: undefined,
-        } : entry);
+        };
+      });
       setAgenda(updated);
       liveStateRef.current.agenda = updated;
       const result = await saveBundleUnified(createMeetingBundle("準備中"));
@@ -1008,9 +1020,8 @@ async function deleteBundleUnified(meetingId: string) {
   }
 
 
-  function confirmDecisionIssue(itemId: string, issueId: string) {
-    setAgenda((current) => {
-      const updated = current.map((item) => {
+  async function confirmDecisionIssue(itemId: string, issueId: string) {
+    const updated = liveStateRef.current.agenda.map((item) => {
         if (item.id !== itemId) return item;
         const issues = getDecisionIssues(item).map((issue) => {
           if (issue.id !== issueId) return issue;
@@ -1025,26 +1036,39 @@ async function deleteBundleUnified(meetingId: string) {
           decisionSupportVersion: 2 as const,
         };
       });
-      liveStateRef.current.agenda = updated;
-      return updated;
-    });
-    markEditing();
-    showToast("入力内容を本人確認済みにしました");
+    setAgenda(updated);
+    liveStateRef.current.agenda = updated;
+    try {
+      setSaveState("保存中…");
+      const result = await saveBundleUnified(createMeetingBundle("準備中"));
+      setLastSavedAt(result.updatedAt);
+      setSaveState("Neonに保存済み");
+      showToast("本人確認済みとして保存しました");
+    } catch (error) {
+      setSaveState("保存エラー");
+      showToast(error instanceof Error ? error.message : "本人確認を保存できませんでした");
+    }
   }
 
-  function toggleNoDecisionIssue(itemId: string, issueId: string) {
-    setAgenda((current) => {
-      const updated = current.map((item) => {
+  async function toggleNoDecisionIssue(itemId: string, issueId: string) {
+    const updated = liveStateRef.current.agenda.map((item) => {
         if (item.id !== itemId) return item;
         const issues = getDecisionIssues(item).map((issue) => issue.id === issueId ? { ...issue, reviewStatus: issue.reviewStatus === "判断しない" ? "AI確認待ち" as const : "判断しない" as const, confirmedAt: undefined } : issue);
         const actionable = issues.filter((issue) => issue.reviewStatus !== "判断しない");
         return { ...item, decisionIssues: issues, reviewStatus: actionable.length === 0 ? "判断しない" as const : actionable.every((issue) => issue.reviewStatus === "本人確認済み") ? "本人確認済み" as const : "AI確認待ち" as const, decisionSupportVersion: 2 as const };
       });
-      liveStateRef.current.agenda = updated;
-      return updated;
-    });
-    markEditing();
-    showToast("判断しない問題は完成率と会議資料の対象外です");
+    setAgenda(updated);
+    liveStateRef.current.agenda = updated;
+    try {
+      setSaveState("保存中…");
+      const result = await saveBundleUnified(createMeetingBundle("準備中"));
+      setLastSavedAt(result.updatedAt);
+      setSaveState("Neonに保存済み");
+      showToast("判断状態を保存しました。判断しない問題は会議資料へ4項目を出しません");
+    } catch (error) {
+      setSaveState("保存エラー");
+      showToast(error instanceof Error ? error.message : "判断状態を保存できませんでした");
+    }
   }
 
   function addNextMeeting() {
