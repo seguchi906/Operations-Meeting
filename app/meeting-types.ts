@@ -29,6 +29,8 @@ export type DecisionIssue = {
   meetingDecision?: string;
   meetingDecisionStatus?: "未決定" | "決定済";
   decidedAt?: string;
+  carryoverSourceMeetingId?: string;
+  carryoverSourceIssueId?: string;
 };
 
 export type DecisionSupportDraft = {

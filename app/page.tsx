@@ -1184,7 +1184,26 @@ async function deleteBundleUnified(meetingId: string) {
       const result = await saveBundleUnified(createMeetingBundle("準備中"));
       setLastSavedAt(result.updatedAt);
       setSaveState("Neonに保存済み");
-      showToast(status === "決定済" ? "会議での判断を決定済みとして保存しました" : "未決定事項として次回会議への引継ぎ対象にしました");
+      if (status === "未決定") {
+        const sourceItem = updated.find((item) => item.id === itemId);
+        const sourceIssue = sourceItem ? getDecisionIssues(sourceItem).find((issue) => issue.id === issueId) : undefined;
+        const nextMeeting = meetings
+          .filter((meeting) => meeting.date && meeting.date > selectedMeeting.date)
+          .sort((a, b) => a.date.localeCompare(b.date))[0];
+        if (sourceItem && sourceIssue && nextMeeting) {
+          try {
+            await carryIssueToExistingMeeting(nextMeeting, sourceItem, sourceIssue);
+            showToast(`${formatMeetingDate(nextMeeting.date)}へ未決定事項を反映しました`);
+          } catch (carryError) {
+            console.error("次回会議への反映に失敗しました:", carryError);
+            showToast("未決定状態は保存しましたが、次回会議へ反映できませんでした。もう一度お試しください");
+          }
+        } else {
+          showToast("未決定事項として保存しました。次回会議が追加されたときに反映します");
+        }
+      } else {
+        showToast("会議での判断を決定済みとして保存しました");
+      }
     } catch (error) {
       setAgenda(before);
       liveStateRef.current.agenda = before;
@@ -1195,12 +1214,55 @@ async function deleteBundleUnified(meetingId: string) {
     }
   }
 
+  async function carryIssueToExistingMeeting(nextMeeting: Meeting, sourceItem: AgendaItem, sourceIssue: ReturnType<typeof getDecisionIssues>[number]) {
+    const nextBundle = await loadBundleUnified(nextMeeting.id);
+    const baseBundle: MeetingBundle = nextBundle ?? {
+      meetingId: nextMeeting.id,
+      meetingDate: nextMeeting.date,
+      status: "準備中",
+      agendaItems: createDefaultEmptyAgenda(),
+      meetingMaterial: "",
+      aiSuggestions: "",
+      businessStatus: { lowBudgetItems: null, overdueOutsourcingItems: null, overdueIncompleteItems: null, riskReport: null },
+      transcript: { ai: "", original: "" },
+      minutes: { aiDraft: "", final: "" },
+    };
+    const alreadyCarried = baseBundle.agendaItems.some((item) => getDecisionIssues(item).some((issue) =>
+      issue.carryoverSourceMeetingId === selectedMeeting.id && issue.carryoverSourceIssueId === sourceIssue.id));
+    if (alreadyCarried) return;
+
+    const carriedIssue = {
+      ...sourceIssue,
+      id: `${sourceIssue.id}-carry-${selectedMeeting.id}`,
+      meetingDecisionStatus: "未決定" as const,
+      decidedAt: undefined,
+      carryoverSourceMeetingId: selectedMeeting.id,
+      carryoverSourceIssueId: sourceIssue.id,
+    };
+    const carriedItem: AgendaItem = {
+      ...sourceItem,
+      id: `${sourceItem.id}-carry-${selectedMeeting.id}-${sourceIssue.id}`,
+      detail: sourceItem.detail || sourceIssue.problem,
+      decisionIssues: [carriedIssue],
+      reviewStatus: sourceIssue.reviewStatus === "判断しない" ? "判断しない" : "本人確認済み",
+      decisionSupportVersion: 2,
+    };
+    const carryBlock = createCarryoverMaterial([carriedItem]);
+    await saveBundleUnified({
+      ...baseBundle,
+      status: "準備中",
+      agendaItems: [...baseBundle.agendaItems, carriedItem],
+      meetingMaterial: [baseBundle.meetingMaterial.trim(), carryBlock].filter(Boolean).join("\n\n"),
+    });
+    setMeetings((current) => current.map((meeting) => meeting.id === nextMeeting.id ? { ...meeting, status: "準備中" } : meeting));
+  }
+
   function createCarryoverAgenda() {
     return createDefaultEmptyAgenda().map((emptyItem) => {
       const sourceItems = liveStateRef.current.agenda.filter((item) => item.name === emptyItem.name);
       const carriedIssues = sourceItems.flatMap((item) => getDecisionIssues(item)
         .filter((issue) => issue.meetingDecisionStatus === "未決定")
-        .map((issue) => ({ ...issue, id: `${issue.id}-carry-${Date.now()}`, meetingDecisionStatus: "未決定" as const, decidedAt: undefined })));
+        .map((issue) => ({ ...issue, id: `${issue.id}-carry-${Date.now()}`, meetingDecisionStatus: "未決定" as const, decidedAt: undefined, carryoverSourceMeetingId: selectedMeeting.id, carryoverSourceIssueId: issue.id })));
       if (!carriedIssues.length) return emptyItem;
       return {
         ...emptyItem,
