@@ -358,6 +358,7 @@ export default function Home() {
   const [selectedMeetingId, setSelectedMeetingId] = useState("m-0727");
   const [agenda, setAgenda] = useState<AgendaItem[]>(initialAgenda);
   const [activeNav, setActiveNav] = useState("agenda");
+  const [editorTab, setEditorTab] = useState<"熊本" | "大久保" | "瀬口" | "minutes">("熊本");
   const [transcriptTab, setTranscriptTab] = useState<"ai" | "original">("ai");
   const [previewTab, setPreviewTab] = useState<"material" | "suggestions" | "minutes" | "risk" | "attendance">("material");
   const [aiTranscript, setAiTranscript] = useState(aiTranscriptSeed);
@@ -417,6 +418,7 @@ export default function Home() {
   const completionRate = decisionEligibleItems.length
     ? Math.round((completedDecisionItems.length / decisionEligibleItems.length) * 100)
     : 0;
+  const visibleAgenda = editorTab === "minutes" ? [] : agenda.filter((item) => item.name === editorTab);
 
   useEffect(() => {
     if (!recording) return;
@@ -945,13 +947,17 @@ async function deleteBundleUnified(meetingId: string) {
 
   function addAgendaItem() {
     const id = "agenda-" + Date.now();
+    const owner = editorTab === "minutes" ? { name: "熊本", department: "技術1課", initials: "熊" } :
+      editorTab === "熊本" ? { name: "熊本", department: "技術1課", initials: "熊" } :
+      editorTab === "大久保" ? { name: "大久保", department: "技術2課", initials: "久" } :
+      { name: "瀬口", department: "執行役員", initials: "瀬" };
     setAgenda((current) => [
       ...current,
       {
         id,
-        department: "共有担当",
-        name: "未設定",
-        initials: "＋",
+        department: owner.department,
+        name: owner.name,
+        initials: owner.initials,
         detail: "共有する内容と確認したいことを入力してください",
         due: "期限を設定",
         problem: "",
@@ -1625,11 +1631,23 @@ async function deleteBundleUnified(meetingId: string) {
               </div>
             </div>
 
-            <section className="workspace-section" id="agenda" inert={isMeetingComplete ? true : undefined}>
+            <div className="editor-work-tabs" role="tablist" aria-label="会議資料作成の表示切り替え">
+              {(["熊本", "大久保", "瀬口"] as const).map((name) => (
+                <button key={name} type="button" role="tab" aria-selected={editorTab === name} className={editorTab === name ? "is-active" : ""} onClick={() => setEditorTab(name)}>
+                  議題・{name}
+                </button>
+              ))}
+              <button type="button" role="tab" aria-selected={editorTab === "minutes"} className={editorTab === "minutes" ? "is-active" : ""} onClick={() => setEditorTab("minutes")}>
+                議事録作成
+              </button>
+            </div>
+
+            {editorTab !== "minutes" && (
+            <section className="workspace-section" id="agenda" role="tabpanel" inert={isMeetingComplete ? true : undefined}>
               <div className="section-heading">
                 <div>
                   <span className="section-index">01</span>
-                  <div><h2>議題・担当者</h2><p>各担当者の共有内容を会議前に揃えます</p></div>
+                  <div><h2>議題・{editorTab}</h2><p>{editorTab}さんの共有内容を会議前に揃えます</p></div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                   <button className="text-button" type="button" onClick={addAgendaItem}>
@@ -1664,7 +1682,7 @@ async function deleteBundleUnified(meetingId: string) {
               </div>
 
               <div className="agenda-list">
-                {agenda.length === 0 ? (
+                {visibleAgenda.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "2rem 1rem", border: "1px dashed var(--border)", borderRadius: "8px", background: "var(--surface)" }}>
                     <p style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>議題・担当者が登録されていません</p>
                     <button className="primary-small-button" type="button" onClick={() => setAgenda(createDefaultEmptyAgenda())}>
@@ -1672,7 +1690,7 @@ async function deleteBundleUnified(meetingId: string) {
                     </button>
                   </div>
                 ) : (
-                  agenda.map((item) => (
+                  visibleAgenda.map((item) => (
                     <article className="agenda-card" key={item.id} id={item.id}>
                       <div className="agenda-owner">
                         <span className="owner-avatar">{item.initials}</span>
@@ -1725,8 +1743,10 @@ async function deleteBundleUnified(meetingId: string) {
                 )}
               </div>
             </section>
+            )}
 
-            <section className="workspace-section transcript-section" id="transcript" inert={isMeetingComplete ? true : undefined}>
+            {editorTab === "minutes" && (<>
+            <section className="workspace-section transcript-section" id="transcript" role="tabpanel" inert={isMeetingComplete ? true : undefined}>
               <div className="section-heading">
                 <div>
                   <span className="section-index">02</span>
@@ -1848,6 +1868,7 @@ async function deleteBundleUnified(meetingId: string) {
                 </div>
               </div>
             </section>
+            </>)}
           </div>
         </div>
       </section>
