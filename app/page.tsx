@@ -100,6 +100,32 @@ function parseMeetingMaterial(md: string): MeetingSection[] {
   return sections;
 }
 
+function MeetingDecisionEditor({ agendaItem, issue, onDecisionChange, onDecisionStatus, processingDecisions }: {
+  agendaItem: AgendaItem;
+  issue: ReturnType<typeof getDecisionIssues>[number];
+  onDecisionChange: (itemId: string, issueId: string, value: string) => void;
+  onDecisionStatus: (itemId: string, issueId: string, status: "未決定" | "決定済") => void;
+  processingDecisions: Record<string, "未決定" | "決定済">;
+}) {
+  const processingKey = `${agendaItem.id}:${issue.id}`;
+  return (
+    <div className="meeting-decision-editor">
+      <label>
+        <span>会議での判断</span>
+        <textarea value={issue.meetingDecision ?? ""} placeholder="会議で決まった方針・担当・期限を入力" onChange={(event) => onDecisionChange(agendaItem.id, issue.id, event.target.value)} />
+      </label>
+      <div className="meeting-decision-actions">
+        <button type="button" className={`meeting-decided-button${issue.meetingDecisionStatus === "決定済" ? " is-active" : ""}`} disabled={Boolean(processingDecisions[processingKey]) || !issue.meetingDecision?.trim()} onClick={() => onDecisionStatus(agendaItem.id, issue.id, "決定済")}>
+          {processingDecisions[processingKey] === "決定済" ? "保存中…" : issue.meetingDecisionStatus === "決定済" ? "✓ 決定済" : "決定済"}
+        </button>
+        <button type="button" className={`meeting-undecided-button${issue.meetingDecisionStatus === "未決定" ? " is-active" : ""}`} disabled={Boolean(processingDecisions[processingKey])} onClick={() => onDecisionStatus(agendaItem.id, issue.id, "未決定")}>
+          {processingDecisions[processingKey] === "未決定" ? "保存中…" : issue.meetingDecisionStatus === "未決定" ? "✓ 未決定" : "未決定"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MeetingMaterialView({ markdown, agenda, onDecisionChange, onDecisionStatus, processingDecisions }: {
   markdown: string;
   agenda: AgendaItem[];
@@ -134,35 +160,29 @@ function MeetingMaterialView({ markdown, agenda, onDecisionChange, onDecisionSta
                       const agendaItem = agenda.find((candidate) => candidate.name === item.writer)
                         ?? agenda.find((candidate) => candidate.detail.trim() === item.content.trim());
                       const issue = agendaItem ? getDecisionIssues(agendaItem).filter((candidate) => candidate.reviewStatus !== "判断しない")[supportIndex] : undefined;
-                      const processingKey = agendaItem && issue ? `${agendaItem.id}:${issue.id}` : "";
                       return <div className="mat-decision-group" key={supportIndex}>
                       <dl className="mat-decision-support">
                         {(["問題", "課長の判断", "判断理由", "会議で確認したいこと"] as const).map((label) => support[label] ? (
                           <div key={label}><dt>{label}</dt><dd>{support[label]}</dd></div>
                         ) : null)}
                       </dl>
-                      {agendaItem && issue && (
-                        <div className="meeting-decision-editor">
-                          <label>
-                            <span>会議での判断</span>
-                            <textarea
-                              value={issue.meetingDecision ?? ""}
-                              placeholder="会議で決まった方針・担当・期限を入力"
-                              onChange={(event) => onDecisionChange(agendaItem.id, issue.id, event.target.value)}
-                            />
-                          </label>
-                          <div className="meeting-decision-actions">
-                            <button type="button" className={`meeting-decided-button${issue.meetingDecisionStatus === "決定済" ? " is-active" : ""}`} disabled={Boolean(processingDecisions[processingKey]) || !issue.meetingDecision?.trim()} onClick={() => onDecisionStatus(agendaItem.id, issue.id, "決定済")}>
-                              {processingDecisions[processingKey] === "決定済" ? "保存中…" : issue.meetingDecisionStatus === "決定済" ? "✓ 決定済" : "決定済"}
-                            </button>
-                            <button type="button" className={`meeting-undecided-button${issue.meetingDecisionStatus === "未決定" ? " is-active" : ""}`} disabled={Boolean(processingDecisions[processingKey])} onClick={() => onDecisionStatus(agendaItem.id, issue.id, "未決定")}>
-                              {processingDecisions[processingKey] === "未決定" ? "保存中…" : issue.meetingDecisionStatus === "未決定" ? "✓ 未決定" : "未決定"}
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      {agendaItem && issue && <MeetingDecisionEditor agendaItem={agendaItem} issue={issue} onDecisionChange={onDecisionChange} onDecisionStatus={onDecisionStatus} processingDecisions={processingDecisions} />}
                       </div>;
                     })}
+                    {item.decisionSupports.length === 0 && (() => {
+                      const agendaItem = agenda.find((candidate) => candidate.name === item.writer)
+                        ?? agenda.find((candidate) => candidate.detail.trim() === item.content.trim());
+                      if (!agendaItem) return null;
+                      const issue = getDecisionIssues(agendaItem)[0] ?? {
+                        id: `${agendaItem.id}-meeting`,
+                        problem: agendaItem.detail,
+                        decision: "",
+                        rationale: "",
+                        meetingRequest: "",
+                        reviewStatus: "判断しない" as const,
+                      };
+                      return <div className="mat-decision-group"><MeetingDecisionEditor agendaItem={agendaItem} issue={issue} onDecisionChange={onDecisionChange} onDecisionStatus={onDecisionStatus} processingDecisions={processingDecisions} /></div>;
+                    })()}
                     {item.writer && (
                       <div className="mat-card-meta">
                         <span className="mat-card-writer">👤 記入者：{item.writer}</span>
@@ -1131,11 +1151,13 @@ async function deleteBundleUnified(meetingId: string) {
   }
 
   function updateMeetingDecision(itemId: string, issueId: string, value: string) {
-    const updated = liveStateRef.current.agenda.map((item) => item.id !== itemId ? item : {
-      ...item,
-      decisionIssues: getDecisionIssues(item).map((issue) => issue.id === issueId
-        ? { ...issue, meetingDecision: value, meetingDecisionStatus: undefined, decidedAt: undefined }
-        : issue),
+    const updated = liveStateRef.current.agenda.map((item) => {
+      if (item.id !== itemId) return item;
+      const issues = getDecisionIssues(item);
+      const decisionIssues = issues.some((issue) => issue.id === issueId)
+        ? issues.map((issue) => issue.id === issueId ? { ...issue, meetingDecision: value, meetingDecisionStatus: undefined, decidedAt: undefined } : issue)
+        : [...issues, { id: issueId, problem: item.detail, decision: "", rationale: "", meetingRequest: "", reviewStatus: "判断しない" as const, meetingDecision: value }];
+      return { ...item, decisionIssues };
     });
     setAgenda(updated);
     liveStateRef.current.agenda = updated;
@@ -1147,13 +1169,14 @@ async function deleteBundleUnified(meetingId: string) {
     if (processingDecisions[key]) return;
     const before = liveStateRef.current.agenda;
     setProcessingDecisions((current) => ({ ...current, [key]: status }));
-    const updated = before.map((item) => item.id !== itemId ? item : {
-      ...item,
-      decisionIssues: getDecisionIssues(item).map((issue) => issue.id === issueId ? {
-        ...issue,
-        meetingDecisionStatus: status,
-        decidedAt: status === "決定済" ? new Date().toISOString() : undefined,
-      } : issue),
+    const updated = before.map((item) => {
+      if (item.id !== itemId) return item;
+      const issues = getDecisionIssues(item);
+      const statusValues = { meetingDecisionStatus: status, decidedAt: status === "決定済" ? new Date().toISOString() : undefined };
+      const decisionIssues = issues.some((issue) => issue.id === issueId)
+        ? issues.map((issue) => issue.id === issueId ? { ...issue, ...statusValues } : issue)
+        : [...issues, { id: issueId, problem: item.detail, decision: "", rationale: "", meetingRequest: "", reviewStatus: "判断しない" as const, meetingDecision: "", ...statusValues }];
+      return { ...item, decisionIssues };
     });
     setAgenda(updated);
     liveStateRef.current.agenda = updated;
