@@ -2153,3 +2153,6 @@ button {
 .no-decision-note{margin:14px 0;padding:12px;border-radius:8px;background:#f3f5f7;color:#5d6976;font-size:13px}
 .no-decision-button{border:1px solid #dc8b8b;border-radius:7px;background:#fff0f0;color:#a33f3f;padding:8px 10px;font-weight:700;cursor:pointer}
 .no-decision-button.is-active{border-color:#c95f5f;background:#f6dada;color:#8f3030}
+.confirm-item-button.is-complete,.confirm-item-button.is-complete:disabled{border-color:#2f855a;background:#bfe8ce;color:#175c36;opacity:1;cursor:default}
+.no-decision-button.is-active{border-color:#b94343;background:#efbebe;color:#7d2424}
+.decision-issue-heading button:disabled{opacity:.58;cursor:not-allowed}

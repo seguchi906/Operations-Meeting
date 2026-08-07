@@ -297,6 +297,12 @@ function getDecisionIssues(item: AgendaItem) {
   return [];
 }
 
+function getAgendaReviewStatus(issues: ReturnType<typeof getDecisionIssues>): NonNullable<AgendaItem["reviewStatus"]> {
+  const actionable = issues.filter((issue) => issue.reviewStatus !== "判断しない");
+  if (!actionable.length) return "判断しない";
+  return actionable.every((issue) => issue.reviewStatus === "本人確認済み") ? "本人確認済み" : "AI確認待ち";
+}
+
 const initialMeetings: Meeting[] = [
   { id: "m-0727", date: "2026-07-27", status: "準備中" },
   { id: "m-0720", date: "2026-07-20", status: "準備中" },
@@ -395,6 +401,7 @@ export default function Home() {
   const [savingBusinessStatus, setSavingBusinessStatus] = useState<"budget" | "outsourcing" | "incomplete" | "risk" | null>(null);
   const [isBundleLoading, setIsBundleLoading] = useState(false);
   const [analyzingAgendaId, setAnalyzingAgendaId] = useState<string | null>(null);
+  const [processingIssues, setProcessingIssues] = useState<Record<string, "confirm" | "skip">>({});
   const [completionTrend, setCompletionTrend] = useState<DecisionCompletionTrend[]>([]);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState("");
@@ -1004,6 +1011,11 @@ async function deleteBundleUnified(meetingId: string) {
 
 
   async function confirmDecisionIssue(itemId: string, issueId: string) {
+    const processingKey = `${itemId}:${issueId}`;
+    if (processingIssues[processingKey]) return;
+    const originalItem = liveStateRef.current.agenda.find((item) => item.id === itemId);
+    const originalIssue = originalItem ? getDecisionIssues(originalItem).find((issue) => issue.id === issueId) : undefined;
+    setProcessingIssues((current) => ({ ...current, [processingKey]: "confirm" }));
     const updated = liveStateRef.current.agenda.map((item) => {
         if (item.id !== itemId) return item;
         const issues = getDecisionIssues(item).map((issue) => {
@@ -1011,11 +1023,10 @@ async function deleteBundleUnified(meetingId: string) {
           const complete = decisionFields.every((field) => issue[field].trim());
           return { ...issue, reviewStatus: complete ? "本人確認済み" as const : "情報不足" as const, confirmedAt: complete ? new Date().toISOString() : undefined };
         });
-        const actionable = issues.filter((issue) => issue.reviewStatus !== "判断しない");
         return {
           ...item,
           decisionIssues: issues,
-          reviewStatus: actionable.length === 0 ? "判断しない" as const : actionable.every((issue) => issue.reviewStatus === "本人確認済み") ? "本人確認済み" as const : "AI確認待ち" as const,
+          reviewStatus: getAgendaReviewStatus(issues),
           decisionSupportVersion: 2 as const,
         };
       });
@@ -1028,17 +1039,32 @@ async function deleteBundleUnified(meetingId: string) {
       setSaveState("Neonに保存済み");
       showToast("本人確認済みとして保存しました");
     } catch (error) {
+      if (originalIssue) {
+        const rolledBack = liveStateRef.current.agenda.map((item) => {
+          if (item.id !== itemId) return item;
+          const issues = getDecisionIssues(item).map((issue) => issue.id === issueId ? originalIssue : issue);
+          return { ...item, decisionIssues: issues, reviewStatus: getAgendaReviewStatus(issues) };
+        });
+        setAgenda(rolledBack);
+        liveStateRef.current.agenda = rolledBack;
+      }
       setSaveState("保存エラー");
       showToast(error instanceof Error ? error.message : "本人確認を保存できませんでした");
+    } finally {
+      setProcessingIssues((current) => { const next = { ...current }; delete next[processingKey]; return next; });
     }
   }
 
   async function toggleNoDecisionIssue(itemId: string, issueId: string) {
+    const processingKey = `${itemId}:${issueId}`;
+    if (processingIssues[processingKey]) return;
+    const originalItem = liveStateRef.current.agenda.find((item) => item.id === itemId);
+    const originalIssue = originalItem ? getDecisionIssues(originalItem).find((issue) => issue.id === issueId) : undefined;
+    setProcessingIssues((current) => ({ ...current, [processingKey]: "skip" }));
     const updated = liveStateRef.current.agenda.map((item) => {
         if (item.id !== itemId) return item;
         const issues = getDecisionIssues(item).map((issue) => issue.id === issueId ? { ...issue, reviewStatus: issue.reviewStatus === "判断しない" ? "AI確認待ち" as const : "判断しない" as const, confirmedAt: undefined } : issue);
-        const actionable = issues.filter((issue) => issue.reviewStatus !== "判断しない");
-        return { ...item, decisionIssues: issues, reviewStatus: actionable.length === 0 ? "判断しない" as const : actionable.every((issue) => issue.reviewStatus === "本人確認済み") ? "本人確認済み" as const : "AI確認待ち" as const, decisionSupportVersion: 2 as const };
+        return { ...item, decisionIssues: issues, reviewStatus: getAgendaReviewStatus(issues), decisionSupportVersion: 2 as const };
       });
     setAgenda(updated);
     liveStateRef.current.agenda = updated;
@@ -1049,8 +1075,19 @@ async function deleteBundleUnified(meetingId: string) {
       setSaveState("Neonに保存済み");
       showToast("判断状態を保存しました。判断しない問題は会議資料へ4項目を出しません");
     } catch (error) {
+      if (originalIssue) {
+        const rolledBack = liveStateRef.current.agenda.map((item) => {
+          if (item.id !== itemId) return item;
+          const issues = getDecisionIssues(item).map((issue) => issue.id === issueId ? originalIssue : issue);
+          return { ...item, decisionIssues: issues, reviewStatus: getAgendaReviewStatus(issues) };
+        });
+        setAgenda(rolledBack);
+        liveStateRef.current.agenda = rolledBack;
+      }
       setSaveState("保存エラー");
       showToast(error instanceof Error ? error.message : "判断状態を保存できませんでした");
+    } finally {
+      setProcessingIssues((current) => { const next = { ...current }; delete next[processingKey]; return next; });
     }
   }
 
@@ -1723,8 +1760,19 @@ async function deleteBundleUnified(meetingId: string) {
                             <div className="decision-issue-heading">
                               <h3>問題 {issueIndex + 1}</h3>
                               <div>
-                                <button className="confirm-item-button" type="button" disabled={issue.reviewStatus === "判断しない" || decisionFields.some((field) => !issue[field].trim())} onClick={() => confirmDecisionIssue(item.id, issue.id)}>✓ 本人確認</button>
-                                <button className={`no-decision-button${issue.reviewStatus === "判断しない" ? " is-active" : ""}`} type="button" onClick={() => toggleNoDecisionIssue(item.id, issue.id)}>{issue.reviewStatus === "判断しない" ? "判断対象に戻す" : "判断しない"}</button>
+                                <button
+                                  className={`confirm-item-button${issue.reviewStatus === "本人確認済み" ? " is-complete" : ""}`}
+                                  type="button"
+                                  disabled={Boolean(processingIssues[`${item.id}:${issue.id}`]) || issue.reviewStatus === "本人確認済み" || issue.reviewStatus === "判断しない" || decisionFields.some((field) => !issue[field].trim())}
+                                  onClick={() => confirmDecisionIssue(item.id, issue.id)}
+                                >{processingIssues[`${item.id}:${issue.id}`] === "confirm" ? "保存中…" : issue.reviewStatus === "本人確認済み" ? "✓ 確認済み" : "✓ 本人確認"}</button>
+                                <button
+                                  className={`no-decision-button${issue.reviewStatus === "判断しない" ? " is-active" : ""}`}
+                                  type="button"
+                                  title={issue.reviewStatus === "判断しない" ? "クリックすると判断対象に戻します" : undefined}
+                                  disabled={Boolean(processingIssues[`${item.id}:${issue.id}`])}
+                                  onClick={() => toggleNoDecisionIssue(item.id, issue.id)}
+                                >{processingIssues[`${item.id}:${issue.id}`] === "skip" ? "保存中…" : issue.reviewStatus === "判断しない" ? "✓ 判断不要" : "判断しない"}</button>
                               </div>
                             </div>
                             <div className="decision-fields-grid">
