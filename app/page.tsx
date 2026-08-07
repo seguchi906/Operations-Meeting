@@ -417,6 +417,9 @@ export default function Home() {
   const completionRate = decisionEligibleItems.length
     ? Math.round((completedDecisionItems.length / decisionEligibleItems.length) * 100)
     : 0;
+  const previousCompletion = completionTrend
+    .filter((point) => point.meetingId !== selectedMeeting.id && (!selectedMeeting.date || point.meetingDate < selectedMeeting.date))
+    .sort((a, b) => b.meetingDate.localeCompare(a.meetingDate))[0];
   const visibleAgenda = editorTab === "minutes" ? [] : agenda.filter((item) => item.name === editorTab);
 
   useEffect(() => {
@@ -1674,7 +1677,7 @@ async function deleteBundleUnified(meetingId: string) {
                   <small>{completedDecisionItems.length} / {decisionEligibleItems.length}件が本人確認済み</small>
                 </div>
                 <div className="decision-score-bars">
-                  <div><span>導入前</span><i><b style={{ width: "10%" }} /></i><em>10%</em></div>
+                  <div><span>前回</span><i><b style={{ width: `${previousCompletion?.rate ?? 0}%` }} /></i><em>{previousCompletion ? `${previousCompletion.rate}%` : "—"}</em></div>
                   <div><span>今回</span><i><b style={{ width: `${completionRate}%` }} /></i><em>{completionRate}%</em></div>
                   <div><span>目標</span><i><b style={{ width: "50%" }} /></i><em>50%</em></div>
                 </div>
