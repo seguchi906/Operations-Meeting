@@ -2,12 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PanelRightClose, PanelRightOpen, Trash2 } from "lucide-react";
-import { deleteMeetingBundleAction, generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
-import { generateMeetingMaterialClient, generateMinutesClient, formatTranscriptClient } from "./gemini-client";
-import { deleteMeetingBundleClient, saveMeetingBundleClient, loadMeetingBundleClient, listStoredMeetingsClient } from "./neon-client";
+import { analyzeDecisionSupportAction, deleteMeetingBundleAction, generateAiSuggestionsAction, generateMinutesAction, formatTranscriptAction, generateMeetingMaterialAction, getDecisionCompletionTrendAction, getLowRemainingBudgetsAction, getOverdueIncompleteProjectsAction, getOverdueOutsourcingContractsAction, getProgressRiskReportAction, listStoredMeetingsAction, loadMeetingBundleAction, saveMeetingBundleAction } from "./actions";
 import { buildProgressRiskReport, fetchLowRemainingBudgets, fetchOverdueIncompleteProjects, fetchOverdueOutsourcingContracts } from "./progress-risk";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
-import type { MeetingBundle } from "./meeting-types";
+import type { DecisionCompletionTrend, DecisionSupportDraft, MeetingBundle, StoredAgendaItem } from "./meeting-types";
 
 // ─── 会議資料パーサー & レンダラー ─────────────────────────────────────
 type AgendaEntry = {
@@ -251,14 +249,23 @@ type Meeting = {
   status: MeetingStatus;
 };
 
-type AgendaItem = {
-  id: string;
-  department: string;
-  name: string;
-  initials: string;
-  detail: string;
-  due: string;
+type AgendaItem = StoredAgendaItem;
+
+const decisionFields = ["problem", "decision", "rationale", "meetingRequest"] as const;
+const decisionLabels: Record<(typeof decisionFields)[number], string> = {
+  problem: "問題",
+  decision: "課長の判断",
+  rationale: "判断理由",
+  meetingRequest: "会議で確認したいこと",
 };
+
+function isDecisionComplete(item: AgendaItem) {
+  return item.reviewStatus === "本人確認済み" && decisionFields.every((field) => item[field]?.trim());
+}
+
+function missingDecisionLabels(item: AgendaItem) {
+  return decisionFields.filter((field) => !item[field]?.trim()).map((field) => decisionLabels[field]);
+}
 
 const initialMeetings: Meeting[] = [
   { id: "m-0727", date: "2026-07-27", status: "準備中" },
@@ -357,6 +364,9 @@ export default function Home() {
   const [isMinutesConfirming, setIsMinutesConfirming] = useState(false);
   const [savingBusinessStatus, setSavingBusinessStatus] = useState<"budget" | "outsourcing" | "incomplete" | "risk" | null>(null);
   const [isBundleLoading, setIsBundleLoading] = useState(false);
+  const [analyzingAgendaId, setAnalyzingAgendaId] = useState<string | null>(null);
+  const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionSupportDraft>>({});
+  const [completionTrend, setCompletionTrend] = useState<DecisionCompletionTrend[]>([]);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -367,6 +377,17 @@ export default function Home() {
     [meetings, selectedMeetingId],
   );
   const isMeetingComplete = selectedMeeting.status === "確定済み";
+  const decisionEligibleItems = useMemo(
+    () => agenda.filter((item) => item.decisionSupportVersion === 1 && item.detail.trim()),
+    [agenda],
+  );
+  const completedDecisionItems = useMemo(
+    () => decisionEligibleItems.filter(isDecisionComplete),
+    [decisionEligibleItems],
+  );
+  const completionRate = decisionEligibleItems.length
+    ? Math.round((completedDecisionItems.length / decisionEligibleItems.length) * 100)
+    : 0;
 
   useEffect(() => {
     if (!recording) return;
@@ -386,12 +407,7 @@ export default function Home() {
   useEffect(() => {
     async function restoreMeetingList() {
       try {
-        let storedMeetings;
-        try {
-          storedMeetings = await listStoredMeetingsAction();
-        } catch {
-          storedMeetings = await listStoredMeetingsClient();
-        }
+        const storedMeetings = await listStoredMeetingsAction();
         setMeetings((current) => {
           const merged = new Map(current.map((meeting) => [meeting.id, meeting]));
           for (const meeting of storedMeetings) merged.set(meeting.id, meeting as Meeting);
@@ -404,6 +420,12 @@ export default function Home() {
     void restoreMeetingList();
   }, []);
 
+  useEffect(() => {
+    getDecisionCompletionTrendAction().then(setCompletionTrend).catch((error) => {
+      console.info("判断事項の推移を読み込めませんでした:", error);
+    });
+  }, [lastSavedAt]);
+
 function createDefaultEmptyAgenda(): AgendaItem[] {
   return [
     {
@@ -413,6 +435,13 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
       initials: "熊",
       detail: "",
       due: "未設定",
+      problem: "",
+      decision: "",
+      rationale: "",
+      meetingRequest: "",
+      reviewStatus: "未整理",
+      aiQuestions: [],
+      decisionSupportVersion: 1,
     },
     {
       id: "agenda-2",
@@ -421,6 +450,13 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
       initials: "久",
       detail: "",
       due: "未設定",
+      problem: "",
+      decision: "",
+      rationale: "",
+      meetingRequest: "",
+      reviewStatus: "未整理",
+      aiQuestions: [],
+      decisionSupportVersion: 1,
     },
     {
       id: "agenda-3",
@@ -429,6 +465,13 @@ function createDefaultEmptyAgenda(): AgendaItem[] {
       initials: "瀬",
       detail: "",
       due: "未設定",
+      problem: "",
+      decision: "",
+      rationale: "",
+      meetingRequest: "",
+      reviewStatus: "未整理",
+      aiQuestions: [],
+      decisionSupportVersion: 1,
     },
   ];
 }
@@ -452,40 +495,27 @@ async function saveBundleUnified(bundle: MeetingBundle): Promise<{ updatedAt: st
   try {
     const result = await saveMeetingBundleAction(bundle);
     return { updatedAt: result.updatedAt };
-  } catch (serverError) {
-    try {
-      const result = await saveMeetingBundleClient(bundle);
-      return { updatedAt: result.updatedAt };
-    } catch (clientError) {
-      console.error("Neon database save failed:", { serverError, clientError });
-      throw new Error("データベースに保存できませんでした。通信状況を確認して、もう一度お試しください。");
-    }
+  } catch (error) {
+    console.error("Server database save failed:", error);
+    throw new Error("データベースに保存できませんでした。通信状況を確認して、もう一度お試しください。");
   }
 }
 
 async function loadBundleUnified(meetingId: string): Promise<MeetingBundle | null> {
   try {
     return await loadMeetingBundleAction(meetingId);
-  } catch (serverError) {
-    try {
-      return await loadMeetingBundleClient(meetingId);
-    } catch (clientError) {
-      console.error("Neon database load failed:", { serverError, clientError });
-      throw new Error("データベースから会議資料を読み込めませんでした。");
-    }
+  } catch (error) {
+    console.error("Server database load failed:", error);
+    throw new Error("データベースから会議資料を読み込めませんでした。");
   }
 }
 
 async function deleteBundleUnified(meetingId: string) {
   try {
     await deleteMeetingBundleAction(meetingId);
-  } catch (serverError) {
-    try {
-      await deleteMeetingBundleClient(meetingId);
-    } catch (clientError) {
-      console.error("Neon database delete failed:", { serverError, clientError });
-      throw new Error("データベースから会議を削除できませんでした。");
-    }
+  } catch (error) {
+    console.error("Server database delete failed:", error);
+    throw new Error("データベースから会議を削除できませんでした。");
   }
 }
 
@@ -578,7 +608,8 @@ async function deleteBundleUnified(meetingId: string) {
     setMeetings((current) => current.map((meeting) => meeting.id === bundle.meetingId
       ? { ...meeting, date: bundle.meetingDate, status: bundle.status }
       : meeting));
-    setAgenda(bundle.agendaItems);
+    const normalizedAgenda = bundle.agendaItems.map((item) => item.decisionSupportVersion === 1 ? item : { ...item });
+    setAgenda(normalizedAgenda);
     setAgendaDocument(bundle.meetingMaterial);
     setAiSuggestions(bundle.aiSuggestions);
     setLowBudgetItems(bundle.businessStatus?.lowBudgetItems ?? null);
@@ -592,7 +623,7 @@ async function deleteBundleUnified(meetingId: string) {
     setLastSavedAt(bundle.updatedAt ?? "");
     liveStateRef.current = {
       selectedMeeting,
-      agenda: bundle.agendaItems,
+      agenda: normalizedAgenda,
       agendaDocument: bundle.meetingMaterial,
       aiSuggestions: bundle.aiSuggestions,
       lowBudgetItems: bundle.businessStatus?.lowBudgetItems ?? null,
@@ -630,6 +661,13 @@ async function deleteBundleUnified(meetingId: string) {
   }
 
   async function saveCurrentMeetingBundle() {
+    const incomplete = liveStateRef.current.agenda.filter((item) =>
+      item.decisionSupportVersion === 1 && item.detail.trim() && !isDecisionComplete(item),
+    );
+    if (incomplete.length > 0) {
+      const summary = incomplete.map((item) => `・${item.department} ${item.name}：${missingDecisionLabels(item).join("、") || "本人確認"}`).join("\n");
+      if (!window.confirm(`判断情報が未完成の報告があります。\n\n${summary}\n\nこのまま会議資料を完了しますか？`)) return;
+    }
     setIsBundleSaving(true);
     setSaveState("保存中…");
     const bundle = createMeetingBundle("確定済み");
@@ -846,9 +884,15 @@ async function deleteBundleUnified(meetingId: string) {
     });
   }
 
-  function updateAgenda(id: string, field: "detail", value: string) {
+  function updateAgenda(id: string, field: "detail" | "problem" | "decision" | "rationale" | "meetingRequest", value: string) {
     setAgenda((current) => {
-      const updated = current.map((item) => (item.id === id ? { ...item, [field]: value } : item));
+      const updated = current.map((item) => (item.id === id ? {
+        ...item,
+        [field]: value,
+        decisionSupportVersion: 1 as const,
+        reviewStatus: item.reviewStatus === "本人確認済み" ? "AI確認待ち" as const : item.reviewStatus || "未整理" as const,
+        confirmedAt: undefined,
+      } : item));
       liveStateRef.current.agenda = updated;
       return updated;
     });
@@ -866,6 +910,13 @@ async function deleteBundleUnified(meetingId: string) {
         initials: "＋",
         detail: "共有する内容と確認したいことを入力してください",
         due: "期限を設定",
+        problem: "",
+        decision: "",
+        rationale: "",
+        meetingRequest: "",
+        reviewStatus: "未整理",
+        aiQuestions: [],
+        decisionSupportVersion: 1,
       },
     ]);
     setActiveNav("agenda");
@@ -874,6 +925,93 @@ async function deleteBundleUnified(meetingId: string) {
     }, 80);
     markEditing();
     showToast("議題を追加しました");
+  }
+
+  async function analyzeAgendaItem(item: AgendaItem) {
+    setAnalyzingAgendaId(item.id);
+    try {
+      const draft = await analyzeDecisionSupportAction({
+        detail: item.detail,
+        problem: item.problem,
+        decision: item.decision,
+        rationale: item.rationale,
+        meetingRequest: item.meetingRequest,
+      });
+      setDecisionDrafts((current) => ({ ...current, [item.id]: draft }));
+      setAgenda((current) => {
+        const updated = current.map((entry) => entry.id === item.id ? {
+          ...entry,
+          reviewStatus: draft.missingFields.length ? "情報不足" as const : "AI確認待ち" as const,
+          aiQuestions: draft.questions,
+          decisionSupportVersion: 1 as const,
+        } : entry);
+        liveStateRef.current.agenda = updated;
+        return updated;
+      });
+      showToast(draft.missingFields.length ? "不足情報を確認してください" : "AI案を確認してください");
+    } catch (error) {
+      console.error("判断支援の整理に失敗しました:", error);
+      showToast("AI整理に失敗しました。元の報告は保存されています");
+    } finally {
+      setAnalyzingAgendaId(null);
+    }
+  }
+
+  function applyDecisionDraft(itemId: string) {
+    const draft = decisionDrafts[itemId];
+    if (!draft) return;
+    setAgenda((current) => {
+      const updated = current.map((item) => item.id === itemId ? {
+        ...item,
+        problem: draft.problem,
+        decision: draft.decision,
+        rationale: draft.rationale,
+        meetingRequest: draft.meetingRequest,
+        reviewStatus: draft.missingFields.length ? "情報不足" as const : "AI確認待ち" as const,
+        aiQuestions: draft.questions,
+        decisionSupportVersion: 1 as const,
+        confirmedAt: undefined,
+      } : item);
+      liveStateRef.current.agenda = updated;
+      return updated;
+    });
+    setDecisionDrafts((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
+    markEditing();
+  }
+
+  function updateDecisionDraft(itemId: string, field: (typeof decisionFields)[number], value: string) {
+    setDecisionDrafts((current) => ({
+      ...current,
+      [itemId]: {
+        ...current[itemId],
+        [field]: value,
+        missingFields: current[itemId].missingFields.filter((missing) => missing !== field),
+      },
+    }));
+  }
+
+  function confirmDecisionItem(itemId: string) {
+    setAgenda((current) => {
+      const updated = current.map((item) => {
+        if (item.id !== itemId) return item;
+        const missing = missingDecisionLabels(item);
+        return {
+          ...item,
+          reviewStatus: missing.length ? "情報不足" as const : "本人確認済み" as const,
+          aiQuestions: missing.length ? missing.map((label) => `${label}を入力してください。`) : [],
+          confirmedAt: missing.length ? undefined : new Date().toISOString(),
+          decisionSupportVersion: 1 as const,
+        };
+      });
+      liveStateRef.current.agenda = updated;
+      return updated;
+    });
+    markEditing();
+    showToast("入力内容を本人確認済みにしました");
   }
 
   function addNextMeeting() {
@@ -938,23 +1076,19 @@ async function deleteBundleUnified(meetingId: string) {
         department: item.department,
         name: item.name,
         detail: item.detail,
+        problem: item.problem,
+        decision: item.decision,
+        rationale: item.rationale,
+        meetingRequest: item.meetingRequest,
+        reviewStatus: item.reviewStatus,
       }));
 
       let meetingMaterial = "";
       let generatedSuggestions = "";
 
-      try {
-        // Try Server Action first (works in dev mode with server runtime)
-        const res = await generateMeetingMaterialAction(payload);
-        meetingMaterial = res.meetingMaterial;
-        generatedSuggestions = res.aiSuggestions;
-      } catch (e) {
-        // Server Action unavailable (static hosting) – call Gemini from browser
-        console.info("Server Action unavailable, calling Gemini API from client:", e);
-        const res = await generateMeetingMaterialClient(payload);
-        meetingMaterial = res.meetingMaterial;
-        generatedSuggestions = res.aiSuggestions;
-      }
+      const res = await generateMeetingMaterialAction(payload);
+      meetingMaterial = res.meetingMaterial;
+      generatedSuggestions = res.aiSuggestions;
 
       setAgendaDocument(meetingMaterial);
       setAiSuggestions(generatedSuggestions);
@@ -984,13 +1118,7 @@ async function deleteBundleUnified(meetingId: string) {
     setIsGenerating(true);
     setSaveState("AIが整形中…");
     try {
-      let formatted = "";
-      try {
-        formatted = await formatTranscriptAction(liveStateRef.current.originalTranscript);
-      } catch (e) {
-        console.info("Server Action unavailable, calling Gemini API from client:", e);
-        formatted = await formatTranscriptClient(liveStateRef.current.originalTranscript);
-      }
+      const formatted = await formatTranscriptAction(liveStateRef.current.originalTranscript);
 
       setAiTranscript(formatted);
       setTranscriptTab("ai");
@@ -1018,13 +1146,7 @@ async function deleteBundleUnified(meetingId: string) {
     const agendaLines = liveStateRef.current.agenda.map((item) => `・${item.name}の議題\n  - ${item.detail}`).join("\n");
     
     try {
-      let generatedDraft = "";
-      try {
-        generatedDraft = await generateMinutesAction(transcriptText, agendaLines);
-      } catch (e) {
-        console.info("Server Action unavailable, calling Gemini API from client:", e);
-        generatedDraft = await generateMinutesClient(transcriptText, agendaLines);
-      }
+      const generatedDraft = await generateMinutesAction(transcriptText, agendaLines);
 
       setAiDraft(generatedDraft);
       setFinalMinutes(generatedDraft);
@@ -1495,6 +1617,28 @@ async function deleteBundleUnified(meetingId: string) {
                 </div>
               </div>
 
+              <div className="decision-scoreboard" aria-label="判断事項の完成状況">
+                <div className="decision-score-main">
+                  <span>今回の判断準備率</span>
+                  <strong>{completionRate}%</strong>
+                  <small>{completedDecisionItems.length} / {decisionEligibleItems.length}件が本人確認済み</small>
+                </div>
+                <div className="decision-score-bars">
+                  <div><span>導入前</span><i><b style={{ width: "10%" }} /></i><em>10%</em></div>
+                  <div><span>今回</span><i><b style={{ width: `${completionRate}%` }} /></i><em>{completionRate}%</em></div>
+                  <div><span>目標</span><i><b style={{ width: "50%" }} /></i><em>50%</em></div>
+                </div>
+                {completionTrend.length > 0 && (
+                  <div className="decision-trend" aria-label="会議ごとの判断準備率">
+                    {completionTrend.slice(0, 6).reverse().map((point) => (
+                      <span key={point.meetingId} title={`${point.meetingDate}: ${point.rate}%`}>
+                        <i style={{ height: `${Math.max(6, point.rate)}%` }} /><small>{point.meetingDate.slice(5).replace("-", "/")}</small>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="agenda-list">
                 {agenda.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "2rem 1rem", border: "1px dashed var(--border)", borderRadius: "8px", background: "var(--surface)" }}>
@@ -1511,22 +1655,50 @@ async function deleteBundleUnified(meetingId: string) {
                         <span><small>{item.department}</small><strong>{item.name}</strong></span>
                       </div>
                       <div className="agenda-fields">
+                        <div className="decision-card-heading">
+                          <span className={`decision-status status-${item.reviewStatus || "未整理"}`}>{item.reviewStatus || "未整理"}</span>
+                          {item.decisionSupportVersion !== 1 && <small>過去形式の報告</small>}
+                        </div>
+                        <label className="agenda-input-label">元の報告</label>
                         <textarea
                           aria-label={item.department + "の共有内容"}
                           placeholder="共有する内容と確認したいことを入力してください"
                           value={item.detail}
                           onChange={(event) => updateAgenda(item.id, "detail", event.target.value)}
                         />
+                        <div className="decision-fields-grid">
+                          {decisionFields.map((field) => (
+                            <label key={field}>
+                              <span>{decisionLabels[field]}</span>
+                              <textarea
+                                aria-label={`${item.department}の${decisionLabels[field]}`}
+                                placeholder={field === "problem" ? "何を問題と捉えていますか" : field === "decision" ? "課長としてどうしますか" : field === "rationale" ? "なぜ、その判断ですか" : "会議で何を確認・調整したいですか"}
+                                value={item[field] || ""}
+                                onChange={(event) => updateAgenda(item.id, field, event.target.value)}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        {item.aiQuestions && item.aiQuestions.length > 0 && (
+                          <div className="decision-questions"><strong>確認が必要です</strong><ul>{item.aiQuestions.map((question) => <li key={question}>{question}</li>)}</ul></div>
+                        )}
+                        {decisionDrafts[item.id] && (
+                          <div className="decision-ai-draft">
+                            <div><strong>AIの整理案</strong><small>内容を修正してから反映できます</small></div>
+                            {decisionFields.map((field) => (
+                              <label key={field}><span>{decisionLabels[field]}</span><textarea value={decisionDrafts[item.id][field]} onChange={(event) => updateDecisionDraft(item.id, field, event.target.value)} /></label>
+                            ))}
+                            {decisionDrafts[item.id].evidence.length > 0 && <p><b>入力から確認できた根拠：</b>{decisionDrafts[item.id].evidence.join(" ／ ")}</p>}
+                            <div className="decision-draft-actions"><button type="button" onClick={() => setDecisionDrafts((current) => { const next = { ...current }; delete next[item.id]; return next; })}>破棄</button><button type="button" onClick={() => applyDecisionDraft(item.id)}>この内容で反映</button></div>
+                          </div>
+                        )}
                         <div className="agenda-meta"><span>提出期限　{item.due}</span><span>担当者に共有済み</span></div>
                       </div>
-                      <button
-                        className="save-item-button"
-                        type="button"
-                        disabled={savingAgendaId === item.id}
-                        onClick={() => saveAgendaItem(item.id)}
-                      >
-                        {savingAgendaId === item.id ? "保存中…" : "保存"}
-                      </button>
+                      <div className="agenda-action-stack">
+                        <button className="ai-organize-button" type="button" disabled={analyzingAgendaId === item.id || !item.detail.trim()} onClick={() => analyzeAgendaItem(item)}>{analyzingAgendaId === item.id ? "AI整理中…" : "✦ AIで整理"}</button>
+                        <button className="confirm-item-button" type="button" disabled={missingDecisionLabels(item).length > 0} onClick={() => confirmDecisionItem(item.id)}>✓ 本人確認</button>
+                        <button className="save-item-button" type="button" disabled={savingAgendaId === item.id} onClick={() => saveAgendaItem(item.id)}>{savingAgendaId === item.id ? "保存中…" : "保存"}</button>
+                      </div>
                     </article>
                   ))
                 )}

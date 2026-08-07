@@ -7,6 +7,32 @@ export type StoredAgendaItem = {
   initials: string;
   detail: string;
   due: string;
+  problem?: string;
+  decision?: string;
+  rationale?: string;
+  meetingRequest?: string;
+  reviewStatus?: "未整理" | "AI確認待ち" | "情報不足" | "本人確認済み";
+  aiQuestions?: string[];
+  confirmedAt?: string;
+  decisionSupportVersion?: 1;
+};
+
+export type DecisionSupportDraft = {
+  problem: string;
+  decision: string;
+  rationale: string;
+  meetingRequest: string;
+  missingFields: Array<"problem" | "decision" | "rationale" | "meetingRequest">;
+  questions: string[];
+  evidence: string[];
+};
+
+export type DecisionCompletionTrend = {
+  meetingId: string;
+  meetingDate: string;
+  completed: number;
+  total: number;
+  rate: number;
 };
 
 export type MeetingBundle = {
