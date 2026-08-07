@@ -1692,10 +1692,6 @@ async function deleteBundleUnified(meetingId: string) {
                 ) : (
                   visibleAgenda.map((item) => (
                     <article className="agenda-card" key={item.id} id={item.id}>
-                      <div className="agenda-owner">
-                        <span className="owner-avatar">{item.initials}</span>
-                        <span><small>{item.department}</small><strong>{item.name}</strong></span>
-                      </div>
                       <div className="agenda-fields">
                         <div className="decision-card-heading">
                           <span className={`decision-status status-${item.reviewStatus || "未整理"}`}>{item.reviewStatus || "未整理"}</span>

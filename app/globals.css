@@ -1486,7 +1486,7 @@ button {
 
 .agenda-card {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr) 54px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 12px;
@@ -1862,7 +1862,7 @@ button {
   }
 
   .agenda-card {
-    grid-template-columns: 105px minmax(0, 1fr) 50px;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .preview-scroll {
