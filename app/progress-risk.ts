@@ -22,7 +22,8 @@ function latestProgress(values: unknown): number | null {
 
 function responsibleSections(project: Record<string, unknown>) {
   if (Array.isArray(project.responsibleSections)) {
-    return SECTIONS.filter((section) => project.responsibleSections?.includes(section));
+    const sections = project.responsibleSections as unknown[];
+    return SECTIONS.filter((section) => sections.includes(section));
   }
   const legacy = String(project.responsibleDept ?? "");
   return SECTIONS.filter((section) => legacy.includes(section));

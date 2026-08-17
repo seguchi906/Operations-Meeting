@@ -460,8 +460,8 @@ export default function Home() {
   const [completionTrend, setCompletionTrend] = useState<DecisionCompletionTrend[]>([]);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState("");
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<number | null>(null);
+  const toastTimer = useRef<number | null>(null);
   const pendingCarryover = useRef<{ meetingId: string; agenda: AgendaItem[]; material: string } | null>(null);
 
   const selectedMeeting = useMemo(
@@ -846,27 +846,6 @@ async function deleteBundleUnified(meetingId: string) {
       showToast(error?.message || "議事録の下書きをデータベースに保存できませんでした");
     } finally {
       setIsMinutesDraftSaving(false);
-    }
-  }
-
-  async function confirmMinutes() {
-    setIsMinutesConfirming(true);
-    setPreviewTab("minutes");
-    setSaveState("保存中…");
-    const bundle = createMeetingBundle("確定済み");
-    try {
-      const { updatedAt } = await saveBundleUnified(bundle);
-      setMeetings((current) => current.map((meeting) => meeting.id === selectedMeeting.id
-        ? { ...meeting, status: "確定済み" }
-        : meeting));
-      setLastSavedAt(updatedAt);
-      setSaveState("Neonに保存済み");
-      showToast("議事録を確定し、保存しました");
-    } catch (error: any) {
-      setSaveState("保存エラー");
-      showToast(error?.message || "議事録をデータベースに保存できませんでした");
-    } finally {
-      setIsMinutesConfirming(false);
     }
   }
 

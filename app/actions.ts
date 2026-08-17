@@ -133,8 +133,8 @@ export async function getDecisionCompletionTrendAction(): Promise<DecisionComple
     return ["熊本", "大久保", "瀬口"].flatMap((person) => {
       const issues = bundle.agendaItems
         .filter((item) => item.name === person && item.decisionSupportVersion && item.detail.trim())
-        .flatMap((item) => item.decisionIssues?.length
-          ? item.decisionIssues
+        .flatMap((item): Array<{ reviewStatus?: string }> => item.decisionIssues?.length
+          ? item.decisionIssues.map((issue) => ({ reviewStatus: issue.reviewStatus }))
           : [item.problem, item.decision, item.rationale, item.meetingRequest].some((value) => value?.trim())
             ? [{ reviewStatus: item.reviewStatus }]
             : []);

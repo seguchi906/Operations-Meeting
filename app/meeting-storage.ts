@@ -7,7 +7,7 @@ function database() {
   return neon(url);
 }
 
-async function ensureSchema(sql: ReturnType<typeof neon>) {
+async function ensureSchema(sql: ReturnType<typeof database>) {
   await sql`
     CREATE TABLE IF NOT EXISTS operations_meetings (
       meeting_id TEXT PRIMARY KEY,
