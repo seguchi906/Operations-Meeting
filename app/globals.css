@@ -1356,6 +1356,28 @@ button {
   background: #b91c1c;
 }
 
+.ai-generate-material-button {
+  padding: 8px 11px;
+  border: 1px solid #635bca;
+  border-radius: 8px;
+  background: #635bca;
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(99, 91, 202, 0.2);
+  cursor: pointer;
+}
+
+.ai-generate-material-button:hover:not(:disabled) {
+  background: #5149b8;
+}
+
+.ai-generate-material-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .bundle-complete-button,
 .resume-editing-button {
   padding: 8px 11px;

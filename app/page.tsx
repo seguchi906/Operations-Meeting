@@ -1898,9 +1898,14 @@ async function deleteBundleUnified(meetingId: string) {
                     <button className="resume-editing-button" type="button" disabled={isResumingEditing} onClick={resumeMeetingEditing}>{isResumingEditing ? "再開中…" : "編集を再開"}</button>
                   </>
                 ) : (
-                  <button className="bundle-save-button" type="button" disabled={isBundleSaving || isBundleLoading} onClick={saveCurrentMeetingBundle}>
-                    {isBundleSaving ? "保存中…" : "会議資料完了"}
-                  </button>
+                  <>
+                    <button className="ai-generate-material-button" type="button" onClick={generateAgendaDocument} disabled={isGenerating || isBundleLoading}>
+                      {isGenerating ? "生成中…" : "✨ AIで会議資料を生成"}
+                    </button>
+                    <button className="bundle-save-button" type="button" disabled={isBundleSaving || isBundleLoading} onClick={saveCurrentMeetingBundle}>
+                      {isBundleSaving ? "保存中…" : "会議資料完了"}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -1926,9 +1931,6 @@ async function deleteBundleUnified(meetingId: string) {
                 <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                   <button className="text-button" type="button" onClick={addAgendaItem}>
                     ＋ 議題を追加
-                  </button>
-                  <button className="text-button" type="button" onClick={generateAgendaDocument} disabled={isGenerating}>
-                    {isGenerating ? "⏳..." : "✨ AIで会議資料を生成"}
                   </button>
                 </div>
               </div>
