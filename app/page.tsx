@@ -1928,11 +1928,6 @@ async function deleteBundleUnified(meetingId: string) {
                   <span className="section-index">01</span>
                   <div><h2>議題・{editorTab}</h2><p>{editorTab}さんの共有内容を会議前に揃えます</p></div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                  <button className="text-button" type="button" onClick={addAgendaItem}>
-                    ＋ 議題を追加
-                  </button>
-                </div>
               </div>
 
               <div className="decision-scoreboard" aria-label="判断事項の完成状況">

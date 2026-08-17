@@ -1,6 +1,6 @@
 "use server";
 
-import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import meetingMaterialPromptTemplate from "../prompts/meeting-material.md?raw";
 import minutesPromptTemplate from "../prompts/minutes.md?raw";
 import formatTranscriptPromptTemplate from "../prompts/format-transcript.md?raw";
@@ -15,6 +15,32 @@ import type { Project, ProgressProject } from "./EarnedValueOverview";
 
 const EARNED_VALUE_PROJECTS_URL = "https://overall-project-schedule-48.netlify.app/api/projects-data";
 const EARNED_VALUE_PROGRESS_URL = "https://progress-dashboard-48.netlify.app/api/projects";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-terra";
+
+function openAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OpenAI APIの設定がありません。");
+  return new OpenAI({ apiKey });
+}
+
+async function generateText(prompt: string): Promise<string> {
+  const response = await openAIClient().responses.create({
+    model: OPENAI_MODEL,
+    input: prompt,
+    store: false,
+  });
+  return response.output_text.trim();
+}
+
+async function generateJson(prompt: string, name: string, schema: Record<string, unknown>): Promise<Record<string, any>> {
+  const response = await openAIClient().responses.create({
+    model: OPENAI_MODEL,
+    input: prompt,
+    store: false,
+    text: { format: { type: "json_schema", name, strict: true, schema } },
+  });
+  return JSON.parse(response.output_text || "{}");
+}
 
 export async function getEarnedValueOverviewDataAction(): Promise<{ projects: Project[]; progress: ProgressProject[]; fetchedAt: string }> {
   await assertAuthorizedAction();
@@ -131,10 +157,7 @@ export async function analyzeDecisionSupportAction(input: {
   decisionIssues?: Array<{ id: string; problem: string; decision: string; rationale: string; meetingRequest: string }>;
 }): Promise<DecisionSupportDraft> {
   await assertAuthorizedAction();
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("AIの設定がありません。");
-
-  const ai = new GoogleGenAI({ apiKey });
+  if (!process.env.OPENAI_API_KEY) throw new Error("OpenAI APIの設定がありません。");
   const prompt = fillPrompt(decisionSupportPromptTemplate, {
     AGENDA_ITEM_JSON: JSON.stringify(input, null, 2),
   });
@@ -166,12 +189,7 @@ export async function analyzeDecisionSupportAction(input: {
 
   async function generate(contents: string): Promise<DecisionSupportDraft | null> {
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents,
-        config: { responseMimeType: "application/json", responseJsonSchema },
-      });
-      const parsed = JSON.parse(response.text || "{}");
+      const parsed = await generateJson(contents, "decision_support", responseJsonSchema);
       const draft: DecisionSupportDraft = {
         issues: Array.isArray(parsed.issues) ? parsed.issues.map((issue: any, index: number) => ({
           id: String(issue.id || `issue-${index + 1}`),
@@ -205,21 +223,17 @@ export async function analyzeDecisionSupportAction(input: {
 
 export async function generateMinutesAction(transcript: string, agenda: string): Promise<string> {
   await assertAuthorizedAction();
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (apiKey) {
     try {
-      const ai = new GoogleGenAI({ apiKey });
       const prompt = fillPrompt(minutesPromptTemplate, {
         AGENDA: agenda || "なし",
         TRANSCRIPT: transcript || "なし",
       });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-      });
-      if (response.text) return response.text;
+      const text = await generateText(prompt);
+      if (text) return text;
     } catch (error: any) {
-      console.error("Gemini API Error (generateMinutes):", error);
+      console.error("OpenAI API Error (generateMinutes):", error);
     }
   }
 
@@ -240,20 +254,16 @@ ${transcript || "・発言の記録なし"}
 
 export async function formatTranscriptAction(originalTranscript: string): Promise<string> {
   await assertAuthorizedAction();
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (apiKey) {
     try {
-      const ai = new GoogleGenAI({ apiKey });
       const prompt = fillPrompt(formatTranscriptPromptTemplate, {
         ORIGINAL_TRANSCRIPT: originalTranscript || "なし",
       });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-      });
-      if (response.text) return response.text;
+      const text = await generateText(prompt);
+      if (text) return text;
     } catch (error: any) {
-      console.error("Gemini API Error (formatTranscript):", error);
+      console.error("OpenAI API Error (formatTranscript):", error);
     }
   }
 
@@ -306,12 +316,10 @@ export async function generateMeetingMaterialAction(
   }>
 ): Promise<{ meetingMaterial: string; aiSuggestions: string }> {
   await assertAuthorizedAction();
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return buildFallbackMeetingMaterial(agendaItems);
   }
-
-  const ai = new GoogleGenAI({ apiKey });
 
   const prompt = fillPrompt(meetingMaterialPromptTemplate, {
     AGENDA_ITEMS_JSON: JSON.stringify(agendaItems, null, 2),
@@ -319,23 +327,22 @@ export async function generateMeetingMaterialAction(
   });
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
+    const parsed = await generateJson(prompt, "meeting_material", {
+      type: "object",
+      additionalProperties: false,
+      required: ["meetingMaterial", "aiSuggestions"],
+      properties: {
+        meetingMaterial: { type: "string" },
+        aiSuggestions: { type: "string" },
       },
     });
-
-    const text = response.text || "{}";
-    const parsed = JSON.parse(text);
 
     return {
       meetingMaterial: parsed.meetingMaterial || buildFallbackMeetingMaterial(agendaItems).meetingMaterial,
       aiSuggestions: parsed.aiSuggestions || buildFallbackMeetingMaterial(agendaItems).aiSuggestions,
     };
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
+    console.error("OpenAI API Error:", error);
     return buildFallbackMeetingMaterial(agendaItems);
   }
 }
