@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Calculator, ChevronDown, ChevronUp, PencilLine, RotateCcw, TableProperties } from "lucide-react";
+import { getEarnedValueOverviewDataAction } from "./actions";
 
 type SectionKey = "division1Group1" | "division1Group2" | "division1Group3" | "division2" | "river" | "road" | "development";
 type SectionValues = Record<SectionKey, number>;
 type PlanMetric = "allocation" | "earned" | "outsourcing";
 type PlanCategory = "division1" | "division2" | "specialist";
 type PlanInputs = Record<PlanMetric, Record<PlanCategory, number>>;
-type Project = { id?: string; number?: string; startDate?: string; allocationSection1?: number | null; allocationSection2?: number | null; allocationSection3?: number | null; allocationSections?: Record<string, number | null>; outsourcingAmount?: number | null; outsourcingSections?: Record<string, number | null> };
-type ProgressProject = { id?: string; number?: string; weeklyProgress?: (number | null)[]; wp?: (number | null)[] };
+export type Project = { id?: string; number?: string; startDate?: string; allocationSection1?: number | null; allocationSection2?: number | null; allocationSection3?: number | null; allocationSections?: Record<string, number | null>; outsourcingAmount?: number | null; outsourcingSections?: Record<string, number | null> };
+export type ProgressProject = { id?: string; number?: string; weeklyProgress?: (number | null)[]; wp?: (number | null)[] };
 export type EarnedValueSnapshot = { projects: Project[]; progress: ProgressProject[]; fetchedAt: string };
 type EarnedValueOverviewProps = { initialSnapshot?: EarnedValueSnapshot | null; onSave?: (snapshot: EarnedValueSnapshot) => Promise<void>; saving?: boolean };
 
@@ -63,10 +64,7 @@ export default function EarnedValueOverview({ initialSnapshot, onSave, saving = 
 
   useEffect(() => { try { const saved = localStorage.getItem(STORAGE_KEY); if (saved) setInputs(JSON.parse(saved)); } catch {} }, []);
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(inputs)); }, [inputs]);
-  async function fetchData() { setLoading(true); setError(""); try { const [projectData, progressData] = await Promise.all([
-    fetch("https://overall-project-schedule-48.netlify.app/api/projects-data", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-    fetch("https://progress-dashboard-48.netlify.app/api/projects", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-  ]); setProjects(Array.isArray(projectData) ? projectData : projectData.projects ?? []); setProgress(Array.isArray(progressData) ? progressData : []); setFetchedAt(new Date().toISOString()); } catch { setError("出来高データを取得できませんでした。時間をおいて再実行してください。"); } finally { setLoading(false); } }
+  async function fetchData() { setLoading(true); setError(""); try { const data = await getEarnedValueOverviewDataAction(); setProjects(data.projects); setProgress(data.progress); setFetchedAt(data.fetchedAt); } catch (cause) { setError(cause instanceof Error ? cause.message : "出来高データを取得できませんでした。時間をおいて再実行してください。"); } finally { setLoading(false); } }
 
   const calculated = useMemo(() => {
     const current = { allocation: { ...EMPTY }, earned: { ...EMPTY }, outsourcing: { ...EMPTY } };

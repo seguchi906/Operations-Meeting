@@ -11,6 +11,34 @@ import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingI
 import { deleteMeetingBundle, listStoredMeetings, loadMeetingBundle, saveMeetingBundle } from "./meeting-storage";
 import type { DecisionCompletionTrend, DecisionSupportDraft, MeetingBundle } from "./meeting-types";
 import { getChatGPTUser } from "./chatgpt-auth";
+import type { Project, ProgressProject } from "./EarnedValueOverview";
+
+const EARNED_VALUE_PROJECTS_URL = "https://overall-project-schedule-48.netlify.app/api/projects-data";
+const EARNED_VALUE_PROGRESS_URL = "https://progress-dashboard-48.netlify.app/api/projects";
+
+export async function getEarnedValueOverviewDataAction(): Promise<{ projects: Project[]; progress: ProgressProject[]; fetchedAt: string }> {
+  await assertAuthorizedAction();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const [projectsResponse, progressResponse] = await Promise.all([
+      fetch(EARNED_VALUE_PROJECTS_URL, { cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal }),
+      fetch(EARNED_VALUE_PROGRESS_URL, { cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal }),
+    ]);
+    if (!projectsResponse.ok || !progressResponse.ok) throw new Error("取得元から出来高データを受信できませんでした。");
+    const projectData = await projectsResponse.json() as Project[] | { projects?: Project[] };
+    const progressData = await progressResponse.json() as ProgressProject[];
+    const projects = Array.isArray(projectData) ? projectData : projectData.projects ?? [];
+    const progress = Array.isArray(progressData) ? progressData : [];
+    if (!projects.length) throw new Error("一覧表に表示できる業務データがありませんでした。");
+    return { projects, progress, fetchedAt: new Date().toISOString() };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error("データ取得がタイムアウトしました。もう一度お試しください。");
+    throw error instanceof Error ? error : new Error("出来高データを取得できませんでした。");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 async function assertAuthorizedAction() {
   if (process.env.NODE_ENV !== "production") return;
