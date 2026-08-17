@@ -50,6 +50,16 @@ function isEmailAllowed(emailCandidate: string, allowedEmails: string[]): boolea
   return allowedEmails.includes(emailCandidate.toLowerCase());
 }
 
+async function createServerSession(idToken: string) {
+  const response = await fetch("/api/auth/session", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken }),
+  });
+  if (!response.ok) throw new Error("サーバー側でMicrosoft認証を確認できませんでした。");
+}
+
 export function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { instance } = useMsal();
   const [authState, setAuthState] = useState<AuthState>({ status: "loading" });
@@ -76,7 +86,7 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
     if (isInIframe) {
       let received = false;
 
-      const handleMessage = (event: MessageEvent) => {
+      const handleMessage = async (event: MessageEvent) => {
         if (event.source !== window.parent) return;
         if (event.data?.type === "AUTH_HINT" && event.data?.loginHint) {
           received = true;
@@ -84,7 +94,20 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
           const name = event.data.name;
 
           if (isEmailAllowed(loginHint, allowedEmails)) {
-            setAuthState({ status: "authenticated", email: loginHint, name });
+            try {
+              const result = await instance.ssoSilent({
+                ...ssoSilentRequest,
+                loginHint,
+              });
+              await createServerSession(result.idToken);
+              setAuthState({ status: "authenticated", email: loginHint, name });
+            } catch (error) {
+              console.error("iframe Microsoft session verification failed:", error);
+              setAuthState({
+                status: "error",
+                message: "Microsoft認証をサーバー側で確認できませんでした。アプリを直接開いて再ログインしてください。",
+              });
+            }
           } else {
             setAuthState({
               status: "forbidden",
@@ -140,6 +163,12 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
             const candidates = getAccountEmailCandidates(targetAccount);
             const allowed = candidates.find((c) => isEmailAllowed(c, allowedEmails));
             if (allowed) {
+              const result = await instance.acquireTokenSilent({
+                ...ssoSilentRequest,
+                account: targetAccount,
+                redirectUri: window.location.origin,
+              });
+              await createServerSession(result.idToken);
               setAuthState({
                 status: "authenticated",
                 email: allowed,
@@ -167,6 +196,7 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
               const candidates = getAccountEmailCandidates(res.account);
               const allowed = candidates.find((c) => isEmailAllowed(c, allowedEmails));
               if (allowed) {
+                await createServerSession(res.idToken);
                 setAuthState({
                   status: "authenticated",
                   email: allowed,

@@ -23,11 +23,11 @@ export const msalConfig: Configuration = {
 };
 
 export const loginRequest: RedirectRequest = {
-  scopes: ["User.Read"],
+  scopes: ["openid", "profile", "email", "User.Read"],
 };
 
 export const ssoSilentRequest: SilentRequest = {
-  scopes: ["User.Read"],
+  scopes: ["openid", "profile", "email", "User.Read"],
   redirectUri:
     typeof window !== "undefined"
       ? `${window.location.origin}/redirect.html`

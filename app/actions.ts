@@ -10,7 +10,7 @@ import { buildProgressRiskReport, fetchLowRemainingBudgets, fetchOverdueIncomple
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
 import { deleteMeetingBundle, listStoredMeetings, loadMeetingBundle, saveMeetingBundle } from "./meeting-storage";
 import type { DecisionCompletionTrend, DecisionSupportDraft, MeetingBundle } from "./meeting-types";
-import { getChatGPTUser } from "./chatgpt-auth";
+import { requireAuthorizedUser } from "./server-auth";
 import type { Project, ProgressProject } from "./EarnedValueOverview";
 
 const EARNED_VALUE_PROJECTS_URL = "https://overall-project-schedule-48.netlify.app/api/projects-data";
@@ -67,14 +67,7 @@ export async function getEarnedValueOverviewDataAction(): Promise<{ projects: Pr
 }
 
 async function assertAuthorizedAction() {
-  if (process.env.NODE_ENV !== "production") return;
-  const user = await getChatGPTUser();
-  if (!user) throw new Error("認証が必要です。");
-  const configured = process.env.ALLOWED_AUTH_EMAILS || process.env.NEXT_PUBLIC_ALLOWED_AUTH_EMAILS || "";
-  const allowed = configured.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
-  if (!allowed.includes("*") && !allowed.includes(user.email.toLowerCase())) {
-    throw new Error("この操作を行う権限がありません。");
-  }
+  await requireAuthorizedUser();
 }
 
 function fillPrompt(template: string, values: Record<string, string>) {
