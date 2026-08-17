@@ -88,18 +88,23 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
 
       const handleMessage = async (event: MessageEvent) => {
         if (event.source !== window.parent) return;
+        const configuredPortalOrigin = process.env.NEXT_PUBLIC_PORTAL_ORIGIN?.trim();
+        const allowedPortalOrigins = [
+          configuredPortalOrigin,
+          "https://n-app-portal.netlify.app",
+          ...(process.env.NODE_ENV !== "production" ? ["http://localhost:5173"] : []),
+        ].filter(Boolean);
+        if (!allowedPortalOrigins.includes(event.origin)) return;
         if (event.data?.type === "AUTH_HINT" && event.data?.loginHint) {
           received = true;
           const loginHint = String(event.data.loginHint).trim().toLowerCase();
           const name = event.data.name;
+          const idToken = typeof event.data.idToken === "string" ? event.data.idToken : "";
 
           if (isEmailAllowed(loginHint, allowedEmails)) {
             try {
-              const result = await instance.ssoSilent({
-                ...ssoSilentRequest,
-                loginHint,
-              });
-              await createServerSession(result.idToken);
+              if (!idToken) throw new Error("ポータルからIDトークンを取得できませんでした。");
+              await createServerSession(idToken);
               setAuthState({ status: "authenticated", email: loginHint, name });
             } catch (error) {
               console.error("iframe Microsoft session verification failed:", error);
