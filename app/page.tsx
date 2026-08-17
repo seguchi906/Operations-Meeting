@@ -746,7 +746,15 @@ async function deleteBundleUnified(meetingId: string) {
     setMeetings((current) => current.map((meeting) => meeting.id === bundle.meetingId
       ? { ...meeting, date: bundle.meetingDate, status: bundle.status }
       : meeting));
-    const normalizedAgenda = bundle.agendaItems.map((item) => item.decisionSupportVersion === 1 ? item : { ...item });
+    const normalizedAgenda = bundle.agendaItems.map((item) => {
+      if (item.decisionSupportVersion === 1 || !item.decisionIssues?.length) return item;
+      const decisionIssues = item.decisionIssues.map((issue) =>
+        issue.carryoverSourceMeetingId && issue.reviewStatus === "本人確認済み" && !issue.confirmedAt
+          ? { ...issue, reviewStatus: "AI確認待ち" as const }
+          : issue,
+      );
+      return { ...item, decisionIssues, reviewStatus: getAgendaReviewStatus(decisionIssues) };
+    });
     setAgenda(normalizedAgenda);
     setAgendaDocument(bundle.meetingMaterial);
     setAiSuggestions(bundle.aiSuggestions);
@@ -1266,32 +1274,52 @@ async function deleteBundleUnified(meetingId: string) {
       transcript: { ai: "", original: "" },
       minutes: { aiDraft: "", final: "" },
     };
-    const alreadyCarried = baseBundle.agendaItems.some((item) => getDecisionIssues(item).some((issue) =>
-      issue.carryoverSourceMeetingId === selectedMeeting.id && issue.carryoverSourceIssueId === sourceIssue.id));
-    if (alreadyCarried) return;
-
     const carriedIssue = {
       ...sourceIssue,
       id: `${sourceIssue.id}-carry-${selectedMeeting.id}`,
-      meetingDecisionStatus: "未決定" as const,
+      reviewStatus: "AI確認待ち" as const,
+      meetingDecisionStatus: undefined,
       decidedAt: undefined,
       carryoverSourceMeetingId: selectedMeeting.id,
       carryoverSourceIssueId: sourceIssue.id,
     };
+    const isSameCarryover = (issue: ReturnType<typeof getDecisionIssues>[number]) =>
+      issue.carryoverSourceMeetingId === selectedMeeting.id && issue.carryoverSourceIssueId === sourceIssue.id;
+    const alreadyCarried = baseBundle.agendaItems.some((item) => getDecisionIssues(item).some(isSameCarryover));
     const carriedItem: AgendaItem = {
       ...sourceItem,
       id: `${sourceItem.id}-carry-${selectedMeeting.id}-${sourceIssue.id}`,
       detail: sourceItem.detail || sourceIssue.problem,
       decisionIssues: [carriedIssue],
-      reviewStatus: sourceIssue.reviewStatus === "判断しない" ? "判断しない" : "本人確認済み",
+      reviewStatus: "AI確認待ち",
       decisionSupportVersion: 2,
     };
+    const nextAgendaItems = alreadyCarried
+      ? baseBundle.agendaItems.map((item) => {
+          const issues = getDecisionIssues(item);
+          if (!issues.some(isSameCarryover)) return item;
+          return {
+            ...item,
+            department: sourceItem.department,
+            name: sourceItem.name,
+            initials: sourceItem.initials,
+            detail: sourceItem.detail || sourceIssue.problem,
+            decisionIssues: issues.map((issue) => isSameCarryover(issue)
+              ? { ...carriedIssue, id: issue.id }
+              : issue),
+            reviewStatus: "AI確認待ち" as const,
+            decisionSupportVersion: 2 as const,
+          };
+        })
+      : [...baseBundle.agendaItems, carriedItem];
     const carryBlock = createCarryoverMaterial([carriedItem]);
     await saveBundleUnified({
       ...baseBundle,
       status: "準備中",
-      agendaItems: [...baseBundle.agendaItems, carriedItem],
-      meetingMaterial: [baseBundle.meetingMaterial.trim(), carryBlock].filter(Boolean).join("\n\n"),
+      agendaItems: nextAgendaItems,
+      meetingMaterial: alreadyCarried
+        ? baseBundle.meetingMaterial
+        : [baseBundle.meetingMaterial.trim(), carryBlock].filter(Boolean).join("\n\n"),
     });
     setMeetings((current) => current.map((meeting) => meeting.id === nextMeeting.id ? { ...meeting, status: "準備中" } : meeting));
   }
@@ -1301,7 +1329,15 @@ async function deleteBundleUnified(meetingId: string) {
       const sourceItems = liveStateRef.current.agenda.filter((item) => item.name === emptyItem.name);
       const carriedIssues = sourceItems.flatMap((item) => getDecisionIssues(item)
         .filter((issue) => issue.meetingDecisionStatus === "未決定")
-        .map((issue) => ({ ...issue, id: `${issue.id}-carry-${Date.now()}`, meetingDecisionStatus: "未決定" as const, decidedAt: undefined, carryoverSourceMeetingId: selectedMeeting.id, carryoverSourceIssueId: issue.id })));
+        .map((issue) => ({
+          ...issue,
+          id: `${issue.id}-carry-${Date.now()}`,
+          reviewStatus: "AI確認待ち" as const,
+          meetingDecisionStatus: undefined,
+          decidedAt: undefined,
+          carryoverSourceMeetingId: selectedMeeting.id,
+          carryoverSourceIssueId: issue.id,
+        })));
       if (!carriedIssues.length) return emptyItem;
       return {
         ...emptyItem,
@@ -1975,6 +2011,7 @@ async function deleteBundleUnified(meetingId: string) {
                   visibleAgenda.map((item) => (
                     <article className="agenda-card" key={item.id} id={item.id}>
                       <div className="agenda-fields">
+                        {!item.decisionIssues?.some((issue) => issue.carryoverSourceMeetingId) && <>
                         <div className="decision-card-heading">
                           <div>
                             <span className={`decision-status status-${item.reviewStatus || "未整理"}`}>{item.reviewStatus || "未整理"}</span>
@@ -1989,6 +2026,7 @@ async function deleteBundleUnified(meetingId: string) {
                           value={item.detail}
                           onChange={(event) => updateAgenda(item.id, "detail", event.target.value)}
                         />
+                        </>}
                         {getDecisionIssues(item).map((issue, issueIndex) => (
                           <section className="decision-issue-editor" key={issue.id}>
                             <div className="decision-issue-heading">
