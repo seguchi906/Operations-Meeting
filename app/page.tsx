@@ -6,6 +6,7 @@ import { analyzeDecisionSupportAction, deleteMeetingBundleAction, generateAiSugg
 import { buildProgressRiskReport, fetchLowRemainingBudgets, fetchOverdueIncompleteProjects, fetchOverdueOutsourcingContracts } from "./progress-risk";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
 import type { DecisionCompletionTrend, MeetingBundle, StoredAgendaItem } from "./meeting-types";
+import EarnedValueOverview from "./EarnedValueOverview";
 
 // ─── 会議資料パーサー & レンダラー ─────────────────────────────────────
 type AgendaEntry = {
@@ -1671,6 +1672,8 @@ async function deleteBundleUnified(meetingId: string) {
 
           {previewTab === "risk" && (
             <section className="preview-tab-panel" role="tabpanel">
+              <EarnedValueOverview />
+
               <div className="business-status-section">
                 <div className="preview-section-heading">
                   <div className="budget-heading-copy"><span>残り予算</span><small>50万円未満</small></div>
