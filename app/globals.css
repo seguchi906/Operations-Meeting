@@ -531,6 +531,8 @@ button {
 }
 
 .ev-overview { display: grid; gap: 14px; margin-bottom: 18px; color: #172033; }
+.ev-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ev-section-heading > strong { font-size: 13px; }
 .ev-card { overflow: hidden; border: 1px solid #172033; border-radius: 12px; background: #fff; box-shadow: 0 2px 3px rgba(15,23,42,.06); }
 .ev-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; }
 .ev-table-card .ev-card-header { border-bottom: 1px solid #cbd5e1; background: #f8fafc; }

@@ -10,6 +10,8 @@ type PlanCategory = "division1" | "division2" | "specialist";
 type PlanInputs = Record<PlanMetric, Record<PlanCategory, number>>;
 type Project = { id?: string; number?: string; startDate?: string; allocationSection1?: number | null; allocationSection2?: number | null; allocationSection3?: number | null; allocationSections?: Record<string, number | null>; outsourcingAmount?: number | null; outsourcingSections?: Record<string, number | null> };
 type ProgressProject = { id?: string; number?: string; weeklyProgress?: (number | null)[]; wp?: (number | null)[] };
+export type EarnedValueSnapshot = { projects: Project[]; progress: ProgressProject[]; fetchedAt: string };
+type EarnedValueOverviewProps = { initialSnapshot?: EarnedValueSnapshot | null; onSave?: (snapshot: EarnedValueSnapshot) => Promise<void>; saving?: boolean };
 
 const KEYS: SectionKey[] = ["division1Group1", "division1Group2", "division1Group3", "division2", "river", "road", "development"];
 const EMPTY: SectionValues = { division1Group1: 0, division1Group2: 0, division1Group3: 0, division2: 0, river: 0, road: 0, development: 0 };
@@ -50,20 +52,21 @@ function progressAt(values: (number | null)[], index: number) { for (let i = Mat
 function distribute(total: number, defaults: number[]) { const base = defaults.reduce((a, b) => a + b, 0); let used = 0; return defaults.map((value, index) => index === defaults.length - 1 ? total - used : (used += Math.round(total * value / base), Math.round(total * value / base))); }
 function inputSections(input: PlanInputs[PlanMetric], defaults: SectionValues): SectionValues { const d1 = distribute(input.division1, [defaults.division1Group1, defaults.division1Group2, defaults.division1Group3]); const sp = distribute(input.specialist, [defaults.river, defaults.road, defaults.development]); return { division1Group1: d1[0], division1Group2: d1[1], division1Group3: d1[2], division2: input.division2, river: sp[0], road: sp[1], development: sp[2] }; }
 
-export default function EarnedValueOverview() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [progress, setProgress] = useState<ProgressProject[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function EarnedValueOverview({ initialSnapshot, onSave, saving = false }: EarnedValueOverviewProps) {
+  const [projects, setProjects] = useState<Project[]>(initialSnapshot?.projects ?? []);
+  const [progress, setProgress] = useState<ProgressProject[]>(initialSnapshot?.progress ?? []);
+  const [fetchedAt, setFetchedAt] = useState(initialSnapshot?.fetchedAt ?? "");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [inputs, setInputs] = useState<PlanInputs>(DEFAULT_INPUTS);
 
   useEffect(() => { try { const saved = localStorage.getItem(STORAGE_KEY); if (saved) setInputs(JSON.parse(saved)); } catch {} }, []);
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(inputs)); }, [inputs]);
-  useEffect(() => { let active = true; Promise.all([
+  async function fetchData() { setLoading(true); setError(""); try { const [projectData, progressData] = await Promise.all([
     fetch("https://overall-project-schedule-48.netlify.app/api/projects-data", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
     fetch("https://progress-dashboard-48.netlify.app/api/projects", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-  ]).then(([projectData, progressData]) => { if (!active) return; setProjects(Array.isArray(projectData) ? projectData : projectData.projects ?? []); setProgress(Array.isArray(progressData) ? progressData : []); }).catch(() => active && setError("出来高データを取得できませんでした。時間をおいて再読み込みしてください。" )).finally(() => active && setLoading(false)); return () => { active = false; }; }, []);
+  ]); setProjects(Array.isArray(projectData) ? projectData : projectData.projects ?? []); setProgress(Array.isArray(progressData) ? progressData : []); setFetchedAt(new Date().toISOString()); } catch { setError("出来高データを取得できませんでした。時間をおいて再実行してください。"); } finally { setLoading(false); } }
 
   const calculated = useMemo(() => {
     const current = { allocation: { ...EMPTY }, earned: { ...EMPTY }, outsourcing: { ...EMPTY } };
@@ -85,15 +88,19 @@ export default function EarnedValueOverview() {
   const currentEarned = sum(calculated.earned), currentOutsourcing = sum(calculated.outsourcing), remaining = currentEarned - TECHNICAL_EXPENSE - COMPANY_EXPENSE - currentOutsourcing;
   const update = (metric: PlanMetric, category: PlanCategory, value: string) => setInputs((old) => ({ ...old, [metric]: { ...old[metric], [category]: Math.max(0, Math.round(Number(value) || 0)) } }));
 
-  if (loading) return <div className="ev-loading">一覧表とチェックを読み込んでいます…</div>;
-  if (error) return <div className="ev-error">{error}</div>;
   return <section className="ev-overview" aria-label="出来高一覧と収支チェック">
+    <div className="ev-section-heading"><strong>一覧表・チェック</strong><div className="business-action-buttons"><button className="budget-fetch-button" type="button" disabled={loading} onClick={() => void fetchData()}>{loading ? "取得中…" : "データを取得"}</button><button className="business-save-button" type="button" disabled={saving || !fetchedAt || !onSave} onClick={() => onSave && void onSave({ projects, progress, fetchedAt })}>{saving ? "保存中…" : "保存"}</button></div></div>
+    {!fetchedAt && !loading && !error && <div className="budget-ready">ボタンを押すと、最新の一覧表とチェックを取得します。</div>}
+    {loading && <div className="ev-loading">一覧表とチェックを取得しています…</div>}
+    {error && <div className="ev-error">{error}</div>}
+    {fetchedAt && <>
     <div className="ev-card ev-table-card">
       <header className="ev-card-header"><div><h3><TableProperties size={15} />一覧表</h3><p>計画値は「計画値を入力」から編集できます。入力値はこのブラウザへ自動保存されます。</p></div><div className="ev-header-actions"><button type="button" onClick={() => setEditorOpen(!editorOpen)} aria-expanded={editorOpen}><PencilLine size={14} />計画値を入力{editorOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button><span>単位：千円</span></div></header>
       {editorOpen && <div className="ev-plan-editor"><div className="ev-editor-title"><div><strong>計画値の入力</strong><small>各項目の1課・2課・専門の合計額を千円単位で入力してください。</small></div><button type="button" onClick={() => setInputs(structuredClone(DEFAULT_INPUTS))}><RotateCcw size={13} />初期値に戻す</button></div><div className="ev-editor-grid"><i />{(["division1", "division2", "specialist"] as PlanCategory[]).map((c) => <b key={c}>{{ division1: "1課", division2: "2課", specialist: "専門" }[c]}</b>)}{(["allocation", "earned", "outsourcing"] as PlanMetric[]).map((m) => <div className="ev-editor-row" key={m}><b>{{ allocation: "配分額", earned: "出来高", outsourcing: "外注費" }[m]}</b>{(["division1", "division2", "specialist"] as PlanCategory[]).map((c) => <label key={c}><input type="number" min="0" step="1000" value={inputs[m][c]} onChange={(e) => update(m, c, e.target.value)} aria-label={`${m}-${c} 計画値`} /><span>千円</span></label>)}</div>)}</div></div>}
       <div className="ev-table-scroll"><table><thead><tr><th colSpan={2} rowSpan={2}></th><th rowSpan={2}>技術部</th><th className="ev-blue" colSpan={3}>1課</th><th className="ev-yellow" rowSpan={2}>2課</th><th className="ev-green" colSpan={3}>専門</th></tr><tr><th className="ev-blue">1課1係</th><th className="ev-blue">1課2係</th><th className="ev-blue">1課3係</th><th className="ev-green">河川</th><th className="ev-green">道路</th><th className="ev-green">開発・点検</th></tr></thead><tbody><Rows label="配分額" plan={plans.allocation} actual={calculated.allocation} uncontracted={calculated.uncontracted} /><Rows label="出来高" plan={plans.earned} actual={calculated.earned} /><Rows label="外注費" plan={plans.outsourcing} actual={calculated.outsourcing} /></tbody></table></div>
     </div>
     <div className="ev-card"><header className="ev-card-header"><div><h3><Calculator size={15} />チェック</h3><p>現時点の出来高から経費と外注費を差し引いた概算です。</p></div><strong className={remaining < 0 ? "ev-alert" : "ev-ok"}>{remaining < 0 ? "要確認" : "収支内"}</strong></header><dl className="ev-check-grid">{[["出来高", currentEarned], ["技術部経費", TECHNICAL_EXPENSE], ["会社経費", COMPANY_EXPENSE], ["外注費", currentOutsourcing], ["残り", remaining]].map(([label, value]) => <div key={label} className={label === "残り" ? remaining < 0 ? "is-negative" : "is-positive" : ""}><dt>{label}</dt><dd>{format(Number(value))}<small>千円</small></dd></div>)}</dl></div>
+    </>}
   </section>;
 }
 

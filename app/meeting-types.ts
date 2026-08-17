@@ -1,4 +1,5 @@
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
+import type { EarnedValueSnapshot } from "./EarnedValueOverview";
 
 export type StoredAgendaItem = {
   id: string;
@@ -56,6 +57,7 @@ export type MeetingBundle = {
   meetingMaterial: string;
   aiSuggestions: string;
   businessStatus: {
+    earnedValueSnapshot?: EarnedValueSnapshot | null;
     lowBudgetItems: LowRemainingBudgetItem[] | null;
     overdueOutsourcingItems: OverdueOutsourcingItem[] | null;
     overdueIncompleteItems: OverdueIncompleteItem[] | null;

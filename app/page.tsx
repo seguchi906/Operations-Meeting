@@ -6,7 +6,7 @@ import { analyzeDecisionSupportAction, deleteMeetingBundleAction, generateAiSugg
 import { buildProgressRiskReport, fetchLowRemainingBudgets, fetchOverdueIncompleteProjects, fetchOverdueOutsourcingContracts } from "./progress-risk";
 import type { LowRemainingBudgetItem, OverdueIncompleteItem, OverdueOutsourcingItem, ProgressRiskReport } from "./risk-types";
 import type { DecisionCompletionTrend, MeetingBundle, StoredAgendaItem } from "./meeting-types";
-import EarnedValueOverview from "./EarnedValueOverview";
+import EarnedValueOverview, { type EarnedValueSnapshot } from "./EarnedValueOverview";
 
 // ─── 会議資料パーサー & レンダラー ─────────────────────────────────────
 type AgendaEntry = {
@@ -427,6 +427,7 @@ export default function Home() {
   const [agendaDocument, setAgendaDocument] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState("");
   const [riskReport, setRiskReport] = useState<ProgressRiskReport | null>(null);
+  const [earnedValueSnapshot, setEarnedValueSnapshot] = useState<EarnedValueSnapshot | null>(null);
   const [riskReportError, setRiskReportError] = useState("");
   const [isRiskLoading, setIsRiskLoading] = useState(false);
   const [lowBudgetItems, setLowBudgetItems] = useState<LowRemainingBudgetItem[] | null>(null);
@@ -451,7 +452,7 @@ export default function Home() {
   const [isTranscriptSaving, setIsTranscriptSaving] = useState(false);
   const [isMinutesDraftSaving, setIsMinutesDraftSaving] = useState(false);
   const [isMinutesConfirming, setIsMinutesConfirming] = useState(false);
-  const [savingBusinessStatus, setSavingBusinessStatus] = useState<"budget" | "outsourcing" | "incomplete" | "risk" | null>(null);
+  const [savingBusinessStatus, setSavingBusinessStatus] = useState<"budget" | "outsourcing" | "incomplete" | "risk" | "earnedValue" | null>(null);
   const [isBundleLoading, setIsBundleLoading] = useState(false);
   const [analyzingAgendaId, setAnalyzingAgendaId] = useState<string | null>(null);
   const [processingIssues, setProcessingIssues] = useState<Record<string, "confirm" | "skip">>({});
@@ -656,6 +657,7 @@ async function deleteBundleUnified(meetingId: string) {
     overdueOutsourcingItems,
     overdueIncompleteItems,
     riskReport,
+    earnedValueSnapshot,
     aiTranscript,
     originalTranscript,
     aiDraft,
@@ -672,6 +674,7 @@ async function deleteBundleUnified(meetingId: string) {
       overdueOutsourcingItems,
       overdueIncompleteItems,
       riskReport,
+      earnedValueSnapshot,
       aiTranscript,
       originalTranscript,
       aiDraft,
@@ -716,6 +719,7 @@ async function deleteBundleUnified(meetingId: string) {
     setOverdueOutsourcingItems(bundle.businessStatus?.overdueOutsourcingItems ?? null);
     setOverdueIncompleteItems(bundle.businessStatus?.overdueIncompleteItems ?? null);
     setRiskReport(bundle.businessStatus?.riskReport ?? null);
+    setEarnedValueSnapshot(bundle.businessStatus?.earnedValueSnapshot ?? null);
     setAiTranscript(bundle.transcript?.ai ?? "");
     setOriginalTranscript(bundle.transcript?.original ?? "");
     setAiDraft(bundle.minutes?.aiDraft ?? "");
@@ -730,6 +734,7 @@ async function deleteBundleUnified(meetingId: string) {
       overdueOutsourcingItems: bundle.businessStatus?.overdueOutsourcingItems ?? null,
       overdueIncompleteItems: bundle.businessStatus?.overdueIncompleteItems ?? null,
       riskReport: bundle.businessStatus?.riskReport ?? null,
+      earnedValueSnapshot: bundle.businessStatus?.earnedValueSnapshot ?? null,
       aiTranscript: bundle.transcript?.ai ?? "",
       originalTranscript: bundle.transcript?.original ?? "",
       aiDraft: bundle.minutes?.aiDraft ?? "",
@@ -754,6 +759,7 @@ async function deleteBundleUnified(meetingId: string) {
         overdueOutsourcingItems: live.overdueOutsourcingItems,
         overdueIncompleteItems: live.overdueIncompleteItems,
         riskReport: live.riskReport,
+        earnedValueSnapshot: live.earnedValueSnapshot,
       },
       transcript: { ai: live.aiTranscript, original: live.originalTranscript },
       minutes: { aiDraft: live.aiDraft, final: live.finalMinutes },
@@ -873,6 +879,24 @@ async function deleteBundleUnified(meetingId: string) {
     } catch (error: any) {
       setSaveState("保存エラー");
       showToast(error?.message || "業務状況を保存できませんでした");
+    } finally {
+      setSavingBusinessStatus(null);
+    }
+  }
+
+  async function saveEarnedValueSnapshot(snapshot: EarnedValueSnapshot) {
+    setEarnedValueSnapshot(snapshot);
+    liveStateRef.current.earnedValueSnapshot = snapshot;
+    setSavingBusinessStatus("earnedValue");
+    setSaveState("保存中…");
+    try {
+      const { updatedAt } = await saveBundleUnified(createMeetingBundle("準備中"));
+      setLastSavedAt(updatedAt);
+      setSaveState("Neonに保存済み");
+      showToast("一覧表とチェックを保存しました");
+    } catch (error: any) {
+      setSaveState("保存エラー");
+      showToast(error?.message || "一覧表とチェックを保存できませんでした");
     } finally {
       setSavingBusinessStatus(null);
     }
@@ -1672,7 +1696,7 @@ async function deleteBundleUnified(meetingId: string) {
 
           {previewTab === "risk" && (
             <section className="preview-tab-panel" role="tabpanel">
-              <EarnedValueOverview />
+              <EarnedValueOverview initialSnapshot={earnedValueSnapshot} onSave={saveEarnedValueSnapshot} saving={savingBusinessStatus === "earnedValue"} />
 
               <div className="business-status-section">
                 <div className="preview-section-heading">
