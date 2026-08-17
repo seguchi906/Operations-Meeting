@@ -44,6 +44,7 @@ export type DecisionSupportDraft = {
 export type DecisionCompletionTrend = {
   meetingId: string;
   meetingDate: string;
+  person: string;
   completed: number;
   total: number;
   rate: number;

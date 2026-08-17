@@ -104,22 +104,25 @@ export async function getDecisionCompletionTrendAction(): Promise<DecisionComple
   const bundles = await Promise.all(meetings.map((meeting) => loadMeetingBundle(meeting.id)));
   return bundles.flatMap((bundle) => {
     if (!bundle) return [];
-    const issues = bundle.agendaItems
-      .filter((item) => item.decisionSupportVersion && item.detail.trim())
-      .flatMap((item) => item.decisionIssues?.length
-        ? item.decisionIssues
-        : [item.problem, item.decision, item.rationale, item.meetingRequest].some((value) => value?.trim())
-          ? [{ reviewStatus: item.reviewStatus }]
-          : []);
-    if (!issues.length) return [];
-    const completed = issues.filter((issue) => issue.reviewStatus === "本人確認済み").length;
-    return [{
-      meetingId: bundle.meetingId,
-      meetingDate: bundle.meetingDate,
-      completed,
-      total: issues.length,
-      rate: Math.round((completed / issues.length) * 100),
-    }];
+    return ["熊本", "大久保", "瀬口"].flatMap((person) => {
+      const issues = bundle.agendaItems
+        .filter((item) => item.name === person && item.decisionSupportVersion && item.detail.trim())
+        .flatMap((item) => item.decisionIssues?.length
+          ? item.decisionIssues
+          : [item.problem, item.decision, item.rationale, item.meetingRequest].some((value) => value?.trim())
+            ? [{ reviewStatus: item.reviewStatus }]
+            : []);
+      if (!issues.length) return [];
+      const completed = issues.filter((issue) => issue.reviewStatus === "本人確認済み").length;
+      return [{
+        meetingId: bundle.meetingId,
+        meetingDate: bundle.meetingDate,
+        person,
+        completed,
+        total: issues.length,
+        rate: Math.round((completed / issues.length) * 100),
+      }];
+    });
   });
 }
 

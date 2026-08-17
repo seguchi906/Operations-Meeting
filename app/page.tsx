@@ -471,9 +471,9 @@ export default function Home() {
   const isMeetingComplete = selectedMeeting.status === "確定済み";
   const decisionIssuesForRate = useMemo(
     () => agenda
-      .filter((item) => item.decisionSupportVersion && item.detail.trim())
+      .filter((item) => item.name === editorTab && item.decisionSupportVersion && item.detail.trim())
       .flatMap((item) => getDecisionIssues(item)),
-    [agenda],
+    [agenda, editorTab],
   );
   const confirmedDecisionIssues = useMemo(
     () => decisionIssuesForRate.filter((issue) => issue.reviewStatus === "本人確認済み"),
@@ -482,7 +482,8 @@ export default function Home() {
   const completionRate = decisionIssuesForRate.length
     ? Math.round((confirmedDecisionIssues.length / decisionIssuesForRate.length) * 100)
     : 0;
-  const previousCompletion = completionTrend
+  const personCompletionTrend = completionTrend.filter((point) => point.person === editorTab);
+  const previousCompletion = personCompletionTrend
     .filter((point) => point.meetingId !== selectedMeeting.id && (!selectedMeeting.date || point.meetingDate < selectedMeeting.date))
     .sort((a, b) => b.meetingDate.localeCompare(a.meetingDate))[0];
   const visibleAgenda = editorTab === "minutes" ? [] : agenda.filter((item) => item.name === editorTab);
@@ -1943,9 +1944,9 @@ async function deleteBundleUnified(meetingId: string) {
                   <div><span>今回</span><i><b style={{ width: `${completionRate}%` }} /></i><em>{completionRate}%</em></div>
                   <div><span>目標</span><i><b style={{ width: "50%" }} /></i><em>50%</em></div>
                 </div>
-                {completionTrend.length > 0 && (
+                {personCompletionTrend.length > 0 && (
                   <div className="decision-trend" aria-label="会議ごとの判断準備率">
-                    {completionTrend.slice(0, 6).reverse().map((point) => (
+                    {personCompletionTrend.slice(0, 6).reverse().map((point) => (
                       <span key={point.meetingId} title={`${point.meetingDate}: ${point.rate}%`}>
                         <i style={{ height: `${Math.max(6, point.rate)}%` }} /><small>{point.meetingDate.slice(5).replace("-", "/")}</small>
                       </span>
