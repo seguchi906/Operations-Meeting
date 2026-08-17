@@ -127,6 +127,38 @@ function MeetingDecisionEditor({ agendaItem, issue, onDecisionChange, onDecision
   );
 }
 
+function findDecisionIssueForSupport(
+  agendaItem: AgendaItem,
+  support: AgendaEntry["items"][number]["decisionSupports"][number],
+) {
+  const candidates = getDecisionIssues(agendaItem).filter(
+    (candidate) => candidate.reviewStatus !== "判断しない",
+  );
+  if (candidates.length === 1) return candidates[0];
+
+  const normalize = (value: unknown) => String(value ?? "")
+    .replace(/\s+/g, "")
+    .replace(/[。、，,.・：:「」『』（）()]/g, "")
+    .toLowerCase();
+  const supportValues = Object.values(support).map(normalize).filter(Boolean);
+  if (!supportValues.length) return undefined;
+
+  const ranked = candidates.map((candidate) => {
+    const issueValues = [candidate.problem, candidate.decision, candidate.rationale, candidate.meetingRequest]
+      .map(normalize)
+      .filter(Boolean);
+    const score = supportValues.reduce(
+      (total, supportValue) => total + (issueValues.some((issueValue) =>
+        issueValue === supportValue || issueValue.includes(supportValue) || supportValue.includes(issueValue)
+      ) ? 1 : 0),
+      0,
+    );
+    return { candidate, score };
+  }).sort((left, right) => right.score - left.score);
+
+  return ranked[0]?.score ? ranked[0].candidate : undefined;
+}
+
 function MeetingMaterialView({ markdown, agenda, onDecisionChange, onDecisionStatus, processingDecisions }: {
   markdown: string;
   agenda: AgendaItem[];
@@ -160,7 +192,7 @@ function MeetingMaterialView({ markdown, agenda, onDecisionChange, onDecisionSta
                     {item.decisionSupports.map((support, supportIndex) => {
                       const agendaItem = agenda.find((candidate) => candidate.name === item.writer)
                         ?? agenda.find((candidate) => candidate.detail.trim() === item.content.trim());
-                      const issue = agendaItem ? getDecisionIssues(agendaItem).filter((candidate) => candidate.reviewStatus !== "判断しない")[supportIndex] : undefined;
+                      const issue = agendaItem ? findDecisionIssueForSupport(agendaItem, support) : undefined;
                       return <div className="mat-decision-group" key={supportIndex}>
                       <dl className="mat-decision-support">
                         {(["問題", "課長の判断", "判断理由", "会議で確認したいこと"] as const).map((label) => support[label] ? (
