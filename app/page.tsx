@@ -469,16 +469,18 @@ export default function Home() {
     [meetings, selectedMeetingId],
   );
   const isMeetingComplete = selectedMeeting.status === "確定済み";
-  const decisionEligibleItems = useMemo(
-    () => agenda.filter((item) => item.decisionSupportVersion && item.detail.trim() && item.reviewStatus !== "判断しない"),
+  const decisionIssuesForRate = useMemo(
+    () => agenda
+      .filter((item) => item.decisionSupportVersion && item.detail.trim())
+      .flatMap((item) => getDecisionIssues(item)),
     [agenda],
   );
-  const completedDecisionItems = useMemo(
-    () => decisionEligibleItems.filter(isDecisionComplete),
-    [decisionEligibleItems],
+  const confirmedDecisionIssues = useMemo(
+    () => decisionIssuesForRate.filter((issue) => issue.reviewStatus === "本人確認済み"),
+    [decisionIssuesForRate],
   );
-  const completionRate = decisionEligibleItems.length
-    ? Math.round((completedDecisionItems.length / decisionEligibleItems.length) * 100)
+  const completionRate = decisionIssuesForRate.length
+    ? Math.round((confirmedDecisionIssues.length / decisionIssuesForRate.length) * 100)
     : 0;
   const previousCompletion = completionTrend
     .filter((point) => point.meetingId !== selectedMeeting.id && (!selectedMeeting.date || point.meetingDate < selectedMeeting.date))
@@ -1934,7 +1936,7 @@ async function deleteBundleUnified(meetingId: string) {
                 <div className="decision-score-main">
                   <span>今回の判断準備率</span>
                   <strong>{completionRate}%</strong>
-                  <small>{completedDecisionItems.length} / {decisionEligibleItems.length}件が本人確認済み</small>
+                  <small>{confirmedDecisionIssues.length} / {decisionIssuesForRate.length}件が本人確認済み</small>
                 </div>
                 <div className="decision-score-bars">
                   <div><span>前回</span><i><b style={{ width: `${previousCompletion?.rate ?? 0}%` }} /></i><em>{previousCompletion ? `${previousCompletion.rate}%` : "—"}</em></div>
